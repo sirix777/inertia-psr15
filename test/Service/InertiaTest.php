@@ -142,4 +142,54 @@ class InertiaTest extends TestCase
         $this->assertSame($json, $jsonResponse);
     }
 
+    public function testRenderReturnResponseWithRequestedUrl()
+    {
+        $request = $this->prophesize(ServerRequestInterface::class);
+        $request->hasHeader('X-Inertia')->willReturn(true);
+        $request->hasHeader('X-Inertia-Partial-Data')->willReturn(false);
+        $invalidJson = '{"component":"component","props":{"key1":"value1","key2":"value2"},"url":"callback()","version":null}';
+        $validJson = '{"component":"component","props":{"key1":"value1","key2":"value2"},"url":"\/test\/url","version":null}';
+        $jsonResponse = null;
+
+        $uri = $this->prophesize(UriInterface::class);
+        $request->getUri()->willReturn(Argument::that([$uri, 'reveal']));
+
+        $response = $this->prophesize(ResponseInterface::class);
+        $responseFactory = $this->prophesize(ResponseFactoryInterface::class);
+        $responseFactory->createResponse()->willReturn($response);
+
+        $stream = $this->prophesize(StreamInterface::class);
+        $streamFactory = $this->prophesize(StreamFactoryInterface::class);
+        $streamFactory->createStream(Argument::type('string'))->will(function ($args) use (&$jsonResponse, $stream){
+            $jsonResponse = $args[0];
+            return $stream;
+        });
+
+        $rootViewProvider = $this->prophesize(RootViewProviderInterface::class);
+
+        $response->withBody($stream->reveal())->willReturn($response);
+        $response->withHeader('X-Inertia', true)->willReturn($response);
+        $response->withHeader('Content-Type', 'application/json')->willReturn($response);
+
+        $inertia = new Inertia(
+            $request->reveal(),
+            $responseFactory->reveal(),
+            $streamFactory->reveal(),
+            $rootViewProvider->reveal()
+        );
+
+        $returnedResponse = $inertia->render(
+            'component',
+            [
+                'key1' => fn() => 'value1',
+                'key2' => fn() => 'value2'
+            ]
+            ,'/test/url'
+        );
+
+        $this->assertInstanceOf(ResponseInterface::class, $returnedResponse);
+        $this->assertNotSame($invalidJson, $jsonResponse);
+        $this->assertSame($validJson, $jsonResponse);
+    }
+
 }

@@ -31,11 +31,11 @@ class Inertia implements InertiaInterface
         $this->page = Page::create();
     }
 
-    public function render(string $component, array $props = []): ResponseInterface
+    public function render(string $component, array $props = [], string $url = null): ResponseInterface
     {
         $this->page = $this->page
-                        ->withComponent($component)
-                        ->withUrl((string)$this->request->getUri());
+            ->withComponent($component)
+            ->withUrl($url ?? (string)$this->request->getUri());
 
         if ($this->request->hasHeader('X-Inertia-Partial-Data')) {
             $only = explode(',', $this->request->getHeaderLine('X-Inertia-Partial-Data'));
