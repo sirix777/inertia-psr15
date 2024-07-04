@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cherif\InertiaPsr15\Service;
 
+use Cherif\InertiaPsr15\Model\LazyProp;
 use Cherif\InertiaPsr15\Model\Page;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -42,10 +43,14 @@ class Inertia implements InertiaInterface
             $props = ($only && $this->request->getHeaderLine('X-Inertia-Partial-Component') === $component)
             ? array_intersect_key($props, array_flip((array) $only))
             : $props;
+        } else {
+            $props = array_filter($props, function ($prop) {
+                return ! $prop instanceof LazyProp;
+            });
         }
 
         array_walk_recursive($props, function (&$prop) {
-            if ($prop instanceof \Closure) {
+            if ($prop instanceof \Closure || $prop instanceof LazyProp ) {
                 $prop = $prop();
             }
         });
@@ -84,5 +89,10 @@ class Inertia implements InertiaInterface
         return $this->responseFactory->createResponse()
                     ->withBody($stream)
                     ->withHeader('Content-Type', $contentType);
+    }
+
+    public static function lazy(callable $callable): LazyProp
+    {
+        return new LazyProp($callable);
     }
 }
