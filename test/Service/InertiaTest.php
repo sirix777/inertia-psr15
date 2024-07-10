@@ -292,4 +292,119 @@ class InertiaTest extends TestCase
         $this->assertSame($validJson, $jsonResponse);
     }
 
+    public function testLocationReturnResponseWithLocationAsStringWithNotExistingInertiaHeader()
+    {
+        $request = $this->prophesize(ServerRequestInterface::class);
+        $htmlResponse = null;
+
+        $response = $this->prophesize(ResponseInterface::class);
+        $responseFactory = $this->prophesize(ResponseFactoryInterface::class);
+        $responseFactory->createResponse()->willReturn($response);
+
+        $stream = $this->prophesize(StreamInterface::class);
+        $streamFactory = $this->prophesize(StreamFactoryInterface::class);
+        $streamFactory->createStream(Argument::type('string'))->will(function () use ($stream){
+            return $stream;
+        });
+
+        $rootViewProvider = $this->prophesize(RootViewProviderInterface::class);
+
+        $response->withBody($stream->reveal())->willReturn($response);
+        $response->withHeader('X-Inertia', true)->willReturn($response);
+        $response->withHeader('Content-Type', 'text/html; charset=UTF-8')->willReturn($response);
+        $response->withStatus(302)->willReturn($response);
+        $response->withHeader('Location', 'new-location')->willReturn($response);
+
+        $inertia = new Inertia(
+            $request->reveal(),
+            $responseFactory->reveal(),
+            $streamFactory->reveal(),
+            $rootViewProvider->reveal()
+        );
+
+
+        $returnedResponse = $inertia->location('new-location');
+
+        $this->assertInstanceOf(ResponseInterface::class, $returnedResponse);
+        $this->assertNotSame('', $htmlResponse);
+    }
+
+    public function testLocationReturnResponseWithLocationAsStringWithExistingInertiaHeader()
+    {
+        $request = $this->prophesize(ServerRequestInterface::class);
+        $request->hasHeader('X-Inertia')->willReturn(true);
+        $htmlResponse = null;
+
+        $response = $this->prophesize(ResponseInterface::class);
+        $responseFactory = $this->prophesize(ResponseFactoryInterface::class);
+        $responseFactory->createResponse()->willReturn($response);
+
+        $stream = $this->prophesize(StreamInterface::class);
+        $streamFactory = $this->prophesize(StreamFactoryInterface::class);
+        $streamFactory->createStream(Argument::type('string'))->will(function () use ($stream){
+            return $stream;
+        });
+
+        $rootViewProvider = $this->prophesize(RootViewProviderInterface::class);
+
+        $response->withBody($stream->reveal())->willReturn($response);
+        $response->withHeader('X-Inertia', true)->willReturn($response);
+        $response->withHeader('Content-Type', 'text/html; charset=UTF-8')->willReturn($response);
+        $response->withStatus(409)->willReturn($response);
+        $response->withHeader('X-Inertia-Location', 'new-location')->willReturn($response);
+
+        $inertia = new Inertia(
+            $request->reveal(),
+            $responseFactory->reveal(),
+            $streamFactory->reveal(),
+            $rootViewProvider->reveal()
+        );
+
+        $returnedResponse = $inertia->location('new-location');
+
+        $this->assertInstanceOf(ResponseInterface::class, $returnedResponse);
+        $this->assertNotSame('', $htmlResponse);
+    }
+
+    public function testLocationReturnResponseWithLocationAsResponseInterfaceWithExistingInertiaHeader()
+    {
+        $request = $this->prophesize(ServerRequestInterface::class);
+        $request->hasHeader('X-Inertia')->willReturn(true);
+        $htmlResponse = null;
+
+        $response = $this->prophesize(ResponseInterface::class);
+        $responseFactory = $this->prophesize(ResponseFactoryInterface::class);
+        $responseFactory->createResponse()->willReturn($response);
+
+        $stream = $this->prophesize(StreamInterface::class);
+        $streamFactory = $this->prophesize(StreamFactoryInterface::class);
+        $streamFactory->createStream(Argument::type('string'))->will(function () use ($stream){
+            return $stream;
+        });
+
+        $rootViewProvider = $this->prophesize(RootViewProviderInterface::class);
+
+        $response->withBody($stream->reveal())->willReturn($response);
+        $response->withHeader('X-Inertia', true)->willReturn($response);
+        $response->withHeader('Content-Type', 'text/html; charset=UTF-8')->willReturn($response);
+
+        $locationResponse = $this->prophesize(ResponseInterface::class);
+        $locationResponse->getHeaderLine('Location')->willReturn('new-location');
+
+        $response->withStatus(409)->willReturn($response);
+        $response->withHeader('X-Inertia-Location', $locationResponse instanceof ResponseInterface ? $locationResponse->getHeaderLine('Location') : $locationResponse)->willReturn($response);
+
+        $inertia = new Inertia(
+            $request->reveal(),
+            $responseFactory->reveal(),
+            $streamFactory->reveal(),
+            $rootViewProvider->reveal()
+        );
+
+        $returnedResponse = $inertia->location($locationResponse);
+
+        $this->assertInstanceOf(ResponseInterface::class, $returnedResponse);
+        $this->assertNotSame('', $htmlResponse);
+    }
+
 }
