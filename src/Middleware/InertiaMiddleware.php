@@ -103,6 +103,15 @@ class InertiaMiddleware implements MiddlewareInterface
             return $response->withStatus(303);
         }
 
+        // For External redirects
+        // https://inertiajs.com/redirects#external-redirects
+        if (
+            409 === $response->getStatusCode()
+            && $response->hasHeader('X-Inertia-Location')
+        ) {
+            return $response->withoutHeader('X-Inertia');
+        }
+
         return $response;
     }
 }

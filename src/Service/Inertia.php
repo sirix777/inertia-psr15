@@ -95,4 +95,30 @@ class Inertia implements InertiaInterface
     {
         return new LazyProp($callable);
     }
+
+    /**
+     * @param string|ResponseInterface $destination
+     * @param int $status
+     * @return ResponseInterface
+     */
+    public function location($destination, int $status = 302): ResponseInterface
+    {
+        $response = $this->createResponse('', 'text/html; charset=UTF-8');
+
+        // We check if InertiaMiddleware has set up the 'X-Inertia-Location' header, so we handle the response accordingly
+        if ($this->request->hasHeader('X-Inertia')) {
+            $response = $response->withStatus(409);
+            return $response->withHeader(
+                'X-Inertia-Location',
+                $destination instanceof ResponseInterface ? $destination->getHeaderLine('Location') : $destination
+            );
+        }
+
+        if ($destination instanceof ResponseInterface) {
+            return $destination;
+        }
+
+        $response = $response->withStatus($status);
+        return $response->withHeader('Location', $destination);
+    }
 }

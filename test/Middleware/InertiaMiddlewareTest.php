@@ -131,4 +131,35 @@ class InertiaMiddlewareTest extends TestCase
 
         $this->assertSame($response->reveal(), $middleware->process($request->reveal(), $handler->reveal()));
     }
+
+    public function testItRemovesInertiaHeaderForExternalRedirects()
+    {
+        $factory = $this->prophesize(InertiaFactoryInterface::class);
+        $inertia = $this->prophesize(InertiaInterface::class);
+        $inertia->getVersion()->willReturn('12345');
+
+        $request = $this->prophesize(ServerRequestInterface::class);
+        $request->withAttribute(InertiaMiddleware::INERTIA_ATTRIBUTE, $inertia->reveal())->willReturn($request);
+        $request->hasHeader('X-Inertia')->willReturn(true);
+        $request->getHeader('X-Inertia-Version')->willReturn('12345');
+        $request->getMethod()->willReturn('POST');
+
+        $factory->fromRequest($request)->willReturn($inertia);
+
+        $response = $this->prophesize(ResponseInterface::class);
+
+        $response->withAddedHeader('Vary', 'Accept')->willReturn($response);
+        $response->withAddedHeader('X-Inertia', 'true')->willReturn($response);
+        $response->hasHeader('X-Inertia-Location')->willReturn(true);
+        $response->getStatusCode()->willReturn(409);
+        $response->withoutHeader('X-Inertia')->shouldBeCalled();
+        $response->withoutHeader('X-Inertia')->willReturn($response);
+
+        $handler = $this->prophesize(RequestHandlerInterface::class);
+        $handler->handle(Argument::that([$request, 'reveal']))->willReturn($response);
+
+        $middleware = new InertiaMiddleware($factory->reveal());
+
+        $this->assertSame($response->reveal(), $middleware->process($request->reveal(), $handler->reveal()));
+    }
 }
