@@ -2,20 +2,22 @@
 
 declare(strict_types=1);
 
-namespace Cherif\InertiaPsr15\Service;
+namespace Sirix\InertiaPsr15\Service;
 
-use Cherif\InertiaPsr15\Model\Page;
-
+use Closure;
+use Sirix\InertiaPsr15\Model\Page;
 
 class RootViewProviderDecorator implements RootViewProviderInterface
 {
-    private $decorated;
-    private string $rootView;
+    /** @var Closure(string, array{page: Page}): string */
+    private readonly Closure $decorated;
 
-    public function __construct(callable $decorated, string $rootView)
+    /**
+     * @param callable(string, array{page: Page}): string $decorated
+     */
+    public function __construct(callable $decorated, private readonly string $rootView)
     {
-        $this->decorated = $decorated;
-        $this->rootView = $rootView;
+        $this->decorated = $decorated(...);
     }
 
     public function __invoke(Page $page): string
@@ -26,6 +28,7 @@ class RootViewProviderDecorator implements RootViewProviderInterface
     public function render(Page $page): string
     {
         $decorated = $this->decorated;
+
         return $decorated($this->rootView, ['page' => $page]);
     }
 }

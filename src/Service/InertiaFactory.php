@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Cherif\InertiaPsr15\Service;
+namespace Sirix\InertiaPsr15\Service;
 
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -10,18 +10,13 @@ use Psr\Http\Message\StreamFactoryInterface;
 
 class InertiaFactory implements InertiaFactoryInterface
 {
-    private ResponseFactoryInterface $responseFactory;
-    private StreamFactoryInterface $streamFactory;
-    private RootViewProviderInterface $rootViewProvider;
+    private readonly RootViewProviderInterface $rootViewProvider;
 
     public function __construct(
-        ResponseFactoryInterface $responseFactory, 
-        StreamFactoryInterface $streamFactory,
+        private readonly ResponseFactoryInterface $responseFactory,
+        private readonly StreamFactoryInterface $streamFactory,
         RootViewProviderInterface $rootViewProvider
-    )
-    {
-        $this->responseFactory = $responseFactory;
-        $this->streamFactory = $streamFactory;
+    ) {
         $this->rootViewProvider = $rootViewProvider;
     }
 

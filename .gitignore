@@ -4,6 +4,7 @@
 
 ### Composer ###
 composer.phar
+composer.lock
 /vendor/
 
 # Commit your application's lock file https://getcomposer.org/doc/01-basic-usage.md#commit-your-composer-lock-file-to-version-control
@@ -16,6 +17,7 @@ composer.phar
 
 # Generated files
 .phpunit.result.cache
+.php-cs-fixer.cache
 
 # PHPUnit
 /app/phpunit.xml
@@ -27,3 +29,4 @@ composer.phar
 # End of https://www.toptal.com/developers/gitignore/api/composer,phpunit
 
 .idea/
+/.php-cs-fixer.cache

@@ -1,37 +1,34 @@
 {
-    "name": "cherif/inertia-psr15",
+    "name": "sirix/inertia-psr15",
     "description": "InertiaJS server-side adapter for PSR-7 and PSR-15 applications",
-    "type": "library",
     "license": "BSD-3-Clause",
+    "type": "library",
     "authors": [
         {
             "name": "Cherif BOUCHELAGHEM",
             "email": "cherif.bouchelaghem@gmail.com"
+        },
+        {
+            "name": "Sirix",
+            "email": "sirix@inbox.lv"
         }
     ],
     "require": {
-        "php": ">=7.4",
+        "php": "~8.1.0 || ~8.2.0 || ~8.3.0 || ~8.4.0",
         "psr/http-server-middleware": "^1.0"
     },
     "require-dev": {
-        "laminas/laminas-diactoros": "^2.5",
-        "mezzio/mezzio-template": "^2.0",
-        "phpspec/prophecy-phpunit": "^2.0",
-        "phpunit/phpunit": "^9.4",
-        "psr/container": "^1.0",
-        "twig/twig": "^3.0"
-    },
-    "config": {
-        "sort-packages": true
-    },
-    "extra": {
-        "laminas": {
-            "config-provider": "Cherif\\InertiaPsr15\\ConfigProvider"
-        }
+        "ergebnis/composer-normalize": "2.46",
+        "laminas/laminas-diactoros": "^3.6.0",
+        "localheinz/diff": "^1.0",
+        "mezzio/mezzio-template": "^2.11",
+        "phpunit/phpunit": "^10.5 || ^11.5",
+        "psr/container": "^1.0 || ^2.0",
+        "twig/twig": "^3.21"
     },
     "autoload": {
         "psr-4": {
-            "Cherif\\InertiaPsr15\\": "src/"
+            "Sirix\\InertiaPsr15\\": "src/"
         }
     },
     "autoload-dev": {
@@ -39,7 +36,44 @@
             "InertiaPsr15Test\\": "test/"
         }
     },
+    "config": {
+        "allow-plugins": {
+            "ergebnis/composer-normalize": true
+        },
+        "sort-packages": true
+    },
+    "extra": {
+        "laminas": {
+            "config-provider": "Sirix\\InertiaPsr15\\ConfigProvider"
+        }
+    },
     "scripts": {
-        "test": "phpunit --colors=always"
+        "post-install-cmd": [
+            "if [ ! -d \"tools/php-cs-fixer/vendor\" ]; then composer install --working-dir=tools/php-cs-fixer; fi",
+            "if [ ! -d \"tools/phpstan/vendor\" ]; then composer install --working-dir=tools/phpstan; fi",
+            "if [ ! -d \"tools/rector/vendor\" ]; then composer install --working-dir=tools/rector; fi"
+        ],
+        "post-update-cmd": [
+            "@tools-update"
+        ],
+        "check": [
+            "@cs-check",
+            "@rector",
+            "@phpstan",
+            "@test"
+        ],
+        "cs-check": "php tools/php-cs-fixer/vendor/bin/php-cs-fixer fix --dry-run -vvv --diff",
+        "cs-fix": "php tools/php-cs-fixer/vendor/bin/php-cs-fixer fix -vvv",
+        "phpstan": "php tools/phpstan/vendor/bin/phpstan analyse -c phpstan.neon --memory-limit=2G",
+        "rector": "php tools/rector/vendor/bin/rector process --dry-run --memory-limit=2G",
+        "test": "phpunit --colors=always  --testdox",
+        "tools-update": [
+            "@tools-update-csfix",
+            "@tools-update-phpstan",
+            "@tools-update-rector"
+        ],
+        "tools-update-csfix": "composer update -W --working-dir=tools/php-cs-fixer",
+        "tools-update-phpstan": "composer update -W --working-dir=tools/phpstan",
+        "tools-update-rector": "composer update -W --working-dir=tools/rector"
     }
 }

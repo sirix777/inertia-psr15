@@ -2,14 +2,20 @@
 
 declare(strict_types=1);
 
-namespace Cherif\InertiaPsr15\Service;
+namespace Sirix\InertiaPsr15\Service;
 
 use Psr\Http\Message\ResponseInterface as Response;
 
 interface InertiaInterface
 {
+    /**
+     * @param array<string, mixed> $props
+     */
     public function render(string $component, array $props = []): Response;
-    public function version(string $version);
-    public function share(string $key, $value = null);
-    public function getVersion();
+
+    public function version(string $version): void;
+
+    public function share(string $key, mixed $value = null): void;
+
+    public function getVersion(): ?string;
 }

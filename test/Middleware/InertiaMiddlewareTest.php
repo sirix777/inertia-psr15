@@ -1,165 +1,145 @@
 <?php
 
+declare(strict_types=1);
+
 namespace InertiaPsr15Test\Middleware;
 
-use Cherif\InertiaPsr15\Middleware\InertiaMiddleware;
-use Cherif\InertiaPsr15\Service\InertiaFactoryInterface;
-use Cherif\InertiaPsr15\Service\InertiaInterface;
 use PHPUnit\Framework\TestCase;
-use Prophecy\Argument;
-use Prophecy\PhpUnit\ProphecyTrait;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UriInterface;
 use Psr\Http\Server\RequestHandlerInterface;
+use Sirix\InertiaPsr15\Middleware\InertiaMiddleware;
+use Sirix\InertiaPsr15\Service\InertiaFactoryInterface;
+use Sirix\InertiaPsr15\Service\InertiaInterface;
 
 class InertiaMiddlewareTest extends TestCase
 {
-    use ProphecyTrait;
-
-    public function testProcessWithoutInertiaHeader()
+    public function testProcessWithoutInertiaHeader(): void
     {
-        $request = $this->prophesize(ServerRequestInterface::class);
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('hasHeader')->with('X-Inertia')->willReturn(false);
+        $inertia = $this->createMock(InertiaInterface::class);
+        $request->method('withAttribute')->with(InertiaMiddleware::INERTIA_ATTRIBUTE, $inertia)->willReturn($request);
 
-        $request->hasHeader('X-Inertia')->willReturn(false);
+        $factory = $this->createMock(InertiaFactoryInterface::class);
+        $factory->method('fromRequest')->with($this->identicalTo($request))->willReturn($inertia);
 
-        $factory = $this->prophesize(InertiaFactoryInterface::class);
-        $inertia = $this->prophesize(InertiaInterface::class);
-        
-        $request->withAttribute(InertiaMiddleware::INERTIA_ATTRIBUTE, $inertia)->willReturn($request);
+        $response = $this->createMock(ResponseInterface::class);
+        $handler = $this->createMock(RequestHandlerInterface::class);
+        $handler->method('handle')->with($this->identicalTo($request))->willReturn($response);
 
-        $factory->fromRequest(Argument::that([$request, 'reveal']))->willReturn($inertia);
-        $response = $this->prophesize(ResponseInterface::class)->reveal();
-
-        $handler = $this->prophesize(RequestHandlerInterface::class);
-        $handler->handle(Argument::that([$request, 'reveal']))->willReturn($response);
-
-        $middleware = new InertiaMiddleware($factory->reveal());
-        $this->assertSame($response, $middleware->process($request->reveal(), $handler->reveal()));
+        $middleware = new InertiaMiddleware($factory);
+        $this->assertSame($response, $middleware->process($request, $handler));
     }
 
-    /**
-     * 
-     */
-    public function testDoesntChangeHandlerResponseForTheSameVersion()
+    public function testDoesntChangeHandlerResponseForTheSameVersion(): void
     {
-        $factory = $this->prophesize(InertiaFactoryInterface::class);
-        $inertia = $this->prophesize(InertiaInterface::class);
-        $inertia->getVersion()->willReturn('12345');
-        
-        $request = $this->prophesize(ServerRequestInterface::class);
-        $request->withAttribute(InertiaMiddleware::INERTIA_ATTRIBUTE, Argument::that([$inertia, 'reveal']))->willReturn($request);
-        $request->hasHeader('X-Inertia')->willReturn(true);
-        $request->getHeader('X-Inertia-Version')->willReturn('12345');
-        $request->getMethod()->willReturn('GET');
-        
-        $factory->fromRequest($request)->willReturn($inertia);
+        $factory = $this->createMock(InertiaFactoryInterface::class);
+        $inertia = $this->createMock(InertiaInterface::class);
+        $inertia->method('getVersion')->willReturn('12345');
 
-        $response = $this->prophesize(ResponseInterface::class);
-        $response->getStatusCode()->willReturn(202);
-       
-        $response->withAddedHeader('Vary', 'Accept')->willReturn($response);
-        $response->withAddedHeader('X-Inertia', 'true')->willReturn($response);
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('withAttribute')->with(InertiaMiddleware::INERTIA_ATTRIBUTE, $this->identicalTo($inertia))->willReturn($request);
+        $request->method('hasHeader')->with('X-Inertia')->willReturn(true);
+        $request->method('getHeaderLine')->with('X-Inertia-Version')->willReturn('12345');
+        $request->method('getMethod')->willReturn('GET');
 
-        $handler = $this->prophesize(RequestHandlerInterface::class);
-        $handler->handle(Argument::that([$request, 'reveal']))->willReturn($response);
+        $factory->method('fromRequest')->with($this->identicalTo($request))->willReturn($inertia);
 
-        $middleware = new InertiaMiddleware($factory->reveal());
+        $response = $this->createMock(ResponseInterface::class);
+        $response->method('getStatusCode')->willReturn(202);
+        $response->method('withAddedHeader')->willReturn($response);
 
-        $this->assertSame($response->reveal(), $middleware->process($request->reveal(), $handler->reveal()));
+        $handler = $this->createMock(RequestHandlerInterface::class);
+        $handler->method('handle')->with($this->identicalTo($request))->willReturn($response);
+
+        $middleware = new InertiaMiddleware($factory);
+        $this->assertSame($response, $middleware->process($request, $handler));
     }
 
-    public function testAddsInertiaLocationToResponseWhenVersionChanges()
+    public function testAddsInertiaLocationToResponseWhenVersionChanges(): void
     {
-        $factory = $this->prophesize(InertiaFactoryInterface::class);
-        $inertia = $this->prophesize(InertiaInterface::class);
-        $inertia->getVersion()->willReturn('forbarbaz');
+        $factory = $this->createMock(InertiaFactoryInterface::class);
+        $inertia = $this->createMock(InertiaInterface::class);
+        $inertia->method('getVersion')->willReturn('forbarbaz');
 
-        $uri = $this->prophesize(UriInterface::class);
-        $uri->getPath()->willReturn('/some-path');
-        
-        $request = $this->prophesize(ServerRequestInterface::class);
-        $request->getUri()->willReturn($uri);
-        $request->withAttribute(InertiaMiddleware::INERTIA_ATTRIBUTE, $inertia->reveal())->willReturn($request);
-        $request->hasHeader('X-Inertia')->willReturn(true);
-        $request->getHeader('X-Inertia-Version')->willReturn('12345');
-        $request->getMethod()->willReturn('GET');
-        
-        $factory->fromRequest($request)->willReturn($inertia);
+        $uri = $this->createMock(UriInterface::class);
+        $uri->method('__toString')->willReturn('http://example.com/some-path');
 
-        $response = $this->prophesize(ResponseInterface::class);
-        $response->getStatusCode()->willReturn(202);
-       
-        $response->withAddedHeader('Vary', 'Accept')->willReturn($response);
-        $response->withAddedHeader('X-Inertia', 'true')->willReturn($response);
-        $response->withAddedHeader('X-Inertia-Location', $uri->reveal()->getPath())->willReturn($response);
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getUri')->willReturn($uri);
+        $request->method('withAttribute')->with(InertiaMiddleware::INERTIA_ATTRIBUTE, $this->identicalTo($inertia))->willReturn($request);
+        $request->method('hasHeader')->with('X-Inertia')->willReturn(true);
+        $request->method('getHeaderLine')->with('X-Inertia-Version')->willReturn('12345');
+        $request->method('getMethod')->willReturn('GET');
 
-        $handler = $this->prophesize(RequestHandlerInterface::class);
-        $handler->handle(Argument::that([$request, 'reveal']))->willReturn($response);
+        $factory->method('fromRequest')->with($this->identicalTo($request))->willReturn($inertia);
 
-        $middleware = new InertiaMiddleware($factory->reveal());
+        $response = $this->createMock(ResponseInterface::class);
+        $response->method('getStatusCode')->willReturn(202);
+        $response->method('withAddedHeader')->willReturn($response);
+        $response->method('withStatus')->with(409)->willReturn($response);
+        $response->method('withHeader')->with('X-Inertia-Location', 'http://example.com/some-path')->willReturn($response);
+        $response->method('withoutHeader')->with('X-Inertia')->willReturn($response);
 
-        $this->assertSame($response->reveal(), $middleware->process($request->reveal(), $handler->reveal()));
+        $handler = $this->createMock(RequestHandlerInterface::class);
+        $handler->method('handle')->with($this->identicalTo($request))->willReturn($response);
+
+        $middleware = new InertiaMiddleware($factory);
+        $this->assertSame($response, $middleware->process($request, $handler));
     }
 
-    public function testItChangesResponseCodeTo303WhenRedirectHappensForPutPatchDelete()
+    public function testItChangesResponseCodeTo303WhenRedirectHappensForPutPatchDelete(): void
     {
-        $factory = $this->prophesize(InertiaFactoryInterface::class);
-        $inertia = $this->prophesize(InertiaInterface::class);
-        $inertia->getVersion()->willReturn('12345');
-        
-        $request = $this->prophesize(ServerRequestInterface::class);
-        $request->withAttribute(InertiaMiddleware::INERTIA_ATTRIBUTE, $inertia->reveal())->willReturn($request);
-        $request->hasHeader('X-Inertia')->willReturn(true);
-        $request->getHeader('X-Inertia-Version')->willReturn('12345');
-        $request->getMethod()->willReturn('PUT');
-        
-        $factory->fromRequest($request)->willReturn($inertia);
+        $factory = $this->createMock(InertiaFactoryInterface::class);
+        $inertia = $this->createMock(InertiaInterface::class);
+        $inertia->method('getVersion')->willReturn('12345');
 
-        $response = $this->prophesize(ResponseInterface::class);
-       
-        $response->withAddedHeader('Vary', 'Accept')->willReturn($response);
-        $response->withAddedHeader('X-Inertia', 'true')->willReturn($response);
-        $response->getStatusCode()->willReturn(302);
-        $response->withStatus(303)->shouldBeCalled();
-        $response->withStatus(303)->willReturn($response);
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('withAttribute')->with(InertiaMiddleware::INERTIA_ATTRIBUTE, $this->identicalTo($inertia))->willReturn($request);
+        $request->method('hasHeader')->with('X-Inertia')->willReturn(true);
+        $request->method('getHeaderLine')->with('X-Inertia-Version')->willReturn('12345');
+        $request->method('getMethod')->willReturn('PUT');
 
-        $handler = $this->prophesize(RequestHandlerInterface::class);
-        $handler->handle(Argument::that([$request, 'reveal']))->willReturn($response);
+        $factory->method('fromRequest')->with($this->identicalTo($request))->willReturn($inertia);
 
-        $middleware = new InertiaMiddleware($factory->reveal());
+        $response = $this->createMock(ResponseInterface::class);
+        $response->method('withAddedHeader')->willReturn($response);
+        $response->method('getStatusCode')->willReturn(302);
+        $response->expects($this->once())->method('withStatus')->with(303)->willReturn($response);
 
-        $this->assertSame($response->reveal(), $middleware->process($request->reveal(), $handler->reveal()));
+        $handler = $this->createMock(RequestHandlerInterface::class);
+        $handler->method('handle')->with($this->identicalTo($request))->willReturn($response);
+
+        $middleware = new InertiaMiddleware($factory);
+        $this->assertSame($response, $middleware->process($request, $handler));
     }
 
-    public function testItRemovesInertiaHeaderForExternalRedirects()
+    public function testItRemovesInertiaHeaderForExternalRedirects(): void
     {
-        $factory = $this->prophesize(InertiaFactoryInterface::class);
-        $inertia = $this->prophesize(InertiaInterface::class);
-        $inertia->getVersion()->willReturn('12345');
+        $factory = $this->createMock(InertiaFactoryInterface::class);
+        $inertia = $this->createMock(InertiaInterface::class);
+        $inertia->method('getVersion')->willReturn('12345');
 
-        $request = $this->prophesize(ServerRequestInterface::class);
-        $request->withAttribute(InertiaMiddleware::INERTIA_ATTRIBUTE, $inertia->reveal())->willReturn($request);
-        $request->hasHeader('X-Inertia')->willReturn(true);
-        $request->getHeader('X-Inertia-Version')->willReturn('12345');
-        $request->getMethod()->willReturn('POST');
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('withAttribute')->with(InertiaMiddleware::INERTIA_ATTRIBUTE, $this->identicalTo($inertia))->willReturn($request);
+        $request->method('hasHeader')->with('X-Inertia')->willReturn(true);
+        $request->method('getHeaderLine')->with('X-Inertia-Version')->willReturn('12345');
+        $request->method('getMethod')->willReturn('POST');
 
-        $factory->fromRequest($request)->willReturn($inertia);
+        $factory->method('fromRequest')->with($this->identicalTo($request))->willReturn($inertia);
 
-        $response = $this->prophesize(ResponseInterface::class);
+        $response = $this->createMock(ResponseInterface::class);
+        $response->method('withAddedHeader')->willReturn($response);
+        $response->method('hasHeader')->with('X-Inertia-Location')->willReturn(true);
+        $response->method('getStatusCode')->willReturn(409);
+        $response->expects($this->once())->method('withoutHeader')->with('X-Inertia')->willReturn($response);
 
-        $response->withAddedHeader('Vary', 'Accept')->willReturn($response);
-        $response->withAddedHeader('X-Inertia', 'true')->willReturn($response);
-        $response->hasHeader('X-Inertia-Location')->willReturn(true);
-        $response->getStatusCode()->willReturn(409);
-        $response->withoutHeader('X-Inertia')->shouldBeCalled();
-        $response->withoutHeader('X-Inertia')->willReturn($response);
+        $handler = $this->createMock(RequestHandlerInterface::class);
+        $handler->method('handle')->with($this->identicalTo($request))->willReturn($response);
 
-        $handler = $this->prophesize(RequestHandlerInterface::class);
-        $handler->handle(Argument::that([$request, 'reveal']))->willReturn($response);
-
-        $middleware = new InertiaMiddleware($factory->reveal());
-
-        $this->assertSame($response->reveal(), $middleware->process($request->reveal(), $handler->reveal()));
+        $middleware = new InertiaMiddleware($factory);
+        $this->assertSame($response, $middleware->process($request, $handler));
     }
 }

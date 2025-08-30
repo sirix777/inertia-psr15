@@ -2,28 +2,26 @@
 
 declare(strict_types=1);
 
-namespace Cherif\InertiaPsr15\Model;
+namespace Sirix\InertiaPsr15\Model;
+
+use function call_user_func;
 
 /**
- * NOTE: this is similar to Laravel Inertia\LazyProp
+ * NOTE: this is similar to Laravel Inertia\LazyProp.
  */
 final class LazyProp
 {
     /**
-     * @var callable $callback
+     * @var callable
      */
-    protected $callback;
+    private $callback;
 
-    public function __construct(
-        callable $callable
-    ) {
+    public function __construct(callable $callable)
+    {
         $this->callback = $callable;
     }
 
-    /**
-     * @return mixed
-     */
-    public function __invoke()
+    public function __invoke(): mixed
     {
         return call_user_func($this->callback);
     }

@@ -1,11 +1,13 @@
-# inertia-psr15
+# Sirix inertia-psr15
 
-Before using this library, is important to know [what is Inertia.js](https://inertiajs.com/#top), [what is it for](https://inertiajs.com/who-is-it-for) and [how it works](https://inertiajs.com/how-it-works), in the [official Inertia.js website](https://inertiajs.com/)
+This is a maintained fork of https://github.com/cherifGsoul/inertia-psr15. It preserves the original goal while updating PHP versions, tooling, and namespace/package details for this fork. See “Fork notes” below for differences.
+
+Before using this library, it’s important to know [what is Inertia.js](https://inertiajs.com/#top), [what is it for](https://inertiajs.com/who-is-it-for) and [how it works](https://inertiajs.com/how-it-works), on the [official Inertia.js website](https://inertiajs.com/).
 
 PHP PSR-15 [InertiaJS](https://inertiajs.com/) server-side adapter, it can be used with [Mezzio](https://mezzio.dev/), [Slim](https://www.slimframework.com/) or any framework that implements PSR-15 interfaces.
 
 The adapter is a PSR-15 middleware to detect InertiaJS requests and prepare and send Response to be read and rendered 
-by InertiaJS front-end components, the usage after installation and configuration can be easy as: 
+by InertiaJS front-end components. After installation and configuration, usage can be as simple as: 
 
 ```php
 
@@ -20,6 +22,14 @@ return $inertia->render('MyFrontEndComponent', [
 
 
 
+## Fork notes
+
+- Package name: sirix/inertia-psr15
+- PHP versions: ~8.1 to ~8.4 supported
+- Namespace: Sirix\\InertiaPsr15\\
+- Tooling added: PHP-CS-Fixer, PHPStan, Rector configs and GitHub Actions.
+- This README has been adjusted to reflect the fork; code usage remains the same with updated namespaces.
+
 ## Usage:
 
 A [small application](https://github.com/cherifGsoul/mezzio-inertia-demo) was made to demonstrate how this adapter can be used in Mezzio application.
@@ -33,7 +43,7 @@ was selected as the template engine:
 1- Install the adapter:
 
 ```shell
-composer require cherif/inertia-psr15
+composer require sirix/inertia-psr15
 ```
 
 2- Add the inertia middleware to the middlewares pipeline:
@@ -44,7 +54,7 @@ composer require cherif/inertia-psr15
 
 // ...
 // - $app->pipe('/files', $filesMiddleware);
-$app->pipe(\Cherif\InertiaPsr15\Middleware\InertiaMiddleware::class);
+$app->pipe(\Sirix\InertiaPsr15\Middleware\InertiaMiddleware::class);
 
 // Register the routing middleware in the middleware pipeline.
 // This middleware registers the Mezzio\Router\RouteResult request attribute.
@@ -74,7 +84,7 @@ by apdating `config/autoload/template.global.php` and `webpack.global.php` like 
 
 declare(strict_types=1);
 
-use Cherif\InertiaPsr15\Twig\InertiaExtension;
+use Sirix\InertiaPsr15\Twig\InertiaExtension;
 use Fullpipe\TwigWebpackExtension\WebpackExtension;
 
 return [
@@ -137,8 +147,8 @@ declare(strict_types=1);
 
 namespace App\Handler;
 
-use Cherif\InertiaPsr15\Middleware\InertiaMiddleware;
-use Cherif\InertiaPsr15\Service\InertiaInterface;
+use Sirix\InertiaPsr15\Middleware\InertiaMiddleware;
+use Sirix\InertiaPsr15\Service\InertiaInterface;
 use Mezzio\LaminasView\LaminasViewRenderer;
 use Mezzio\Plates\PlatesRenderer;
 use Psr\Http\Message\ResponseInterface;
@@ -160,4 +170,7 @@ class HomePageHandler implements RequestHandlerInterface
 ```
 
 # Copyright
-Mohammed Cherif BOUCHELAGHEM 2021
+Original author: Mohammed Cherif BOUCHELAGHEM (2021)
+Fork maintainer: Sirix (2025)
+
+License: BSD-3-Clause (see LICENSE)

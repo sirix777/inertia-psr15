@@ -2,17 +2,23 @@
 
 declare(strict_types=1);
 
-namespace Cherif\InertiaPsr15\Factory;
+namespace Sirix\InertiaPsr15\Factory;
 
-use Cherif\InertiaPsr15\Service\InertiaFactory;
-use Cherif\InertiaPsr15\Service\RootViewProviderInterface;
+use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\ContainerInterface;
+use Psr\Container\NotFoundExceptionInterface;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\StreamFactoryInterface;
+use Sirix\InertiaPsr15\Service\InertiaFactory;
+use Sirix\InertiaPsr15\Service\RootViewProviderInterface;
 
 class InertiaFactoryFactory
 {
-    public function __invoke(ContainerInterface $container)
+    /**
+     * @throws NotFoundExceptionInterface
+     * @throws ContainerExceptionInterface
+     */
+    public function __invoke(ContainerInterface $container): InertiaFactory
     {
         $responseFactory = $container->get(ResponseFactoryInterface::class);
         $streamFactory = $container->get(StreamFactoryInterface::class);
