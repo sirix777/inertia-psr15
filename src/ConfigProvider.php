@@ -10,6 +10,8 @@ use Sirix\InertiaPsr15\Middleware\InertiaMiddleware;
 use Sirix\InertiaPsr15\Middleware\InertiaMiddlewareFactory;
 use Sirix\InertiaPsr15\Service\InertiaFactoryInterface;
 use Sirix\InertiaPsr15\Service\RootViewProviderInterface;
+use Sirix\InertiaPsr15\Twig\InertiaExtension;
+use Sirix\InertiaPsr15\Twig\InertiaExtensionFactory;
 
 /**
  * The configuration provider for the InertiaPsr15 module.
@@ -46,6 +48,7 @@ class ConfigProvider
                 InertiaMiddleware::class => InertiaMiddlewareFactory::class,
                 RootViewProviderInterface::class => RootViewProviderFactory::class,
                 InertiaFactoryInterface::class => InertiaFactoryFactory::class,
+                InertiaExtension::class => InertiaExtensionFactory::class,
             ],
         ];
     }

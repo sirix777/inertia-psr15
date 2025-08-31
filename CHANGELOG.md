@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 31/08/2025
+
+### Added
+- Twig: InertiaExtensionFactory to enable creating the InertiaExtension via a container factory.
+
+### Changed
+- ConfigProvider: Registers the Twig InertiaExtension and its factory in the container configuration for easier integration.
+
 ## [1.0.1] - 30/08/2025
 
 ### Changed
