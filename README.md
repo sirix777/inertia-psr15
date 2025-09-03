@@ -32,7 +32,7 @@ return $inertia->render('MyFrontEndComponent', [
 
 ## Usage:
 
-A [small application](https://github.com/cherifGsoul/mezzio-inertia-demo) was made to demonstrate how this adapter can be used in Mezzio application.
+A [small application](https://github.com/sirix777/mezzio-inertia-svelte-demo) was made to demonstrate how this adapter can be used in Mezzio application.
 
 The adapter is designed to work with [Mezzio](https://mezzio.dev/) with little effort, in the following we assume that 
 a Mezzio application was generated using [Mezzio Skeleton](https://github.com/mezzio/mezzio-skeleton) and Twig
@@ -65,17 +65,17 @@ $app->pipe(RouteMiddleware::class);
 
 3- Please refer to [InertiaJS](https://inertiajs.com/client-side-setup) to install a client-side adapter.
 
-4- Using Webpack is recommended in order to build the front-end application, however, to render the built JS/CSS
-assets in a Twig template the following extension can be used:
+4- Using Vite is recommended to build the front-end application, however, to render the built JS/CSS
+assets in a Twig template, the following extension can be used:
 
 ```shell
-composer require fullpipe/twig-webpack-extension
+composer require sirix/twig-vite-extension
 ```
 
->> a factory might be needed to configure the Webpack extension 
+>> a factory might be needed to configure the Vite extension 
 
-5- Configure the templte to use Webpack extension and the Inertia Twig extension shipped with the adapter
-by apdating `config/autoload/template.global.php` and `webpack.global.php` like the following:
+5- Configure the template to use Vite extension and the Inertia Twig extension shipped with the adapter
+by updating `config/autoload/template.global.php` and `vite.global.php` like the following:
 
 ```php
 <?php
@@ -85,62 +85,69 @@ by apdating `config/autoload/template.global.php` and `webpack.global.php` like 
 declare(strict_types=1);
 
 use Sirix\InertiaPsr15\Twig\InertiaExtension;
-use Fullpipe\TwigWebpackExtension\WebpackExtension;
+use Sirix\TwigViteExtension\Twig\ViteExtension;
 
 return [
     'templates' => [
         'paths' => [
-            'error' => [dirname(__DIR__, 2) . '/templates/error'],
-            '__main__' => [dirname(__DIR__, 2) . '/templates']
-        ]
+            'error'    => [dirname(__DIR__, 2) . '/templates/error'],
+            '__main__' => [dirname(__DIR__, 2) . '/templates'],
+        ],
     ],
-    'twig' => [
+    'twig'      => [
         'extensions' => [
-            WebpackExtension::class,
-            InertiaExtension::class
-        ]
-    ]
+            ViteExtension::class,
+            InertiaExtension::class,
+        ],
+    ],
 ];
 ```
 
 ```php
 <?php
 
-// webpack.global.php
+// vite.global.php
 
 declare(strict_types=1);
 
 return [
-    'webpack' => [
-        'manifest_file' => dirname(__DIR__, 2) . '/public/build/manifest.json',
-        'public_dir' => dirname(__DIR__, 2) . '/build',
-    ]
+    'vite' => [
+        'options' => [
+            'is_dev_mode'      => true,
+            'vite_build_dir'   => 'public/build',
+            'vite_public_base' => 'build',
+            'dev_server'       => 'http://localhost:5173',
+        ],
+    ],
 ];
 ```
 
-6- The adapter needs just one backend template to render the application and by default it will look for 
+6- The adapter needs just one backend template to render the application, and by default it will look for 
 `templates/app.html.twig` if a default template is not configured, the app template can be like the following:
 
 ```html
 <!DOCTYPE html>
-<html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        {% webpack_entry_css 'build/app' %}
-    </head>
-    <body>
-        {{ inertia(page) }}
-        {% webpack_entry_js 'build/runtime' %}
-        {% webpack_entry_js 'build/app' defer %}
-    </body>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Mezzio with Inertia.js{% endblock %}</title>
+    {{ vite_entry_link_tags('resources/js/app.ts') }}
+</head>
+<body class="font-sans antialiased">
+{% block body %}
+{{ inertia(page) }}
+{% endblock %}
+
+{{ vite_entry_script_tags('resources/js/app.ts') }}
+</body>
 </html>
 ```
->> The template uses Webpack extension (webpack_entry_css, webpack_entry_js) to render the assets and Inertia extension 
+>> The template uses Vite extension (vite_entry_link_tags) to render the assets and Inertia extension 
 > `inertia(page)` to mount the front-end application.
 
 
-After successful configuration the adapter can be used to render the front-end component instead of the HTML templates:
+After successful configuration, the adapter can be used to render the front-end component instead of the HTML templates:
 ```php
 
 declare(strict_types=1);
