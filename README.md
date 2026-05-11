@@ -25,7 +25,7 @@ return $inertia->render('MyFrontEndComponent', [
 ## Fork notes
 
 - Package name: sirix/inertia-psr15
-- PHP versions: ~8.1 to ~8.4 supported
+- PHP versions: ~8.2 to ~8.5 supported
 - Namespace: Sirix\\InertiaPsr15\\
 - Tooling added: PHP-CS-Fixer, PHPStan, Rector configs and GitHub Actions.
 - This README has been adjusted to reflect the fork; code usage remains the same with updated namespaces.

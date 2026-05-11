@@ -54,7 +54,7 @@ class Inertia implements InertiaInterface
         if ($this->request->hasHeader('X-Inertia-Partial-Data')) {
             $only = explode(',', $this->request->getHeaderLine('X-Inertia-Partial-Data'));
             // Normalize: trim and remove empty entries to avoid always-true comparisons and handle empty header correctly
-            $only = array_values(array_filter(array_map(static fn (string $v): string => trim($v), $only), static fn (string $v): bool => '' !== $v));
+            $only = array_values(array_filter(array_map(trim(...), $only), static fn (string $v): bool => '' !== $v));
             $props = ((count($only) > 0) && $this->request->getHeaderLine('X-Inertia-Partial-Component') === $component)
             ? array_intersect_key($props, array_flip($only))
             : $props;

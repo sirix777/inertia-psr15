@@ -5,12 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.1.1] - 03/09/2025
+## [1.1.2] - 2026-05-11
+
+### Added
+- Tools: Integration of `bamarni/composer-bin-plugin` for better dependency management of development tools.
+- PHP Support: Added support for PHP 8.5.
+
+### Changed
+- PHP Support: Minimum supported PHP version bumped to 8.2 (dropped 8.1).
+- Tooling: Updated PHP-CS-Fixer and Rector configurations to target PHP 8.2.
+- Refactoring: Internal code cleanup using PHP 8.2 features (first-class callables).
+- Tests: Rename default testsuite to `unit` in PHPUnit configuration.
+
+## [1.1.1] - 2025-09-03
 
 ### Changed
 - README: Update demo link to sirix/mezzio-inertia-svelte-demo and recommend Vite instead of Webpack, including configuration examples using Sirix\TwigViteExtension. 
 
-## [1.1.0] - 31/08/2025
+## [1.1.0] - 2025-08-31
 
 ### Added
 - Twig: InertiaExtensionFactory to enable creating the InertiaExtension via a container factory.
@@ -18,12 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - ConfigProvider: Registers the Twig InertiaExtension and its factory in the container configuration for easier integration.
 
-## [1.0.1] - 30/08/2025
+## [1.0.1] - 2025-08-30
 
 ### Changed
 - Twig: InertiaExtension now uses htmlspecialchars with ENT_QUOTES | ENT_SUBSTITUTE and explicit UTF-8 when rendering the data-page attribute for safer output and correct encoding.
 
-## [1.0.0] - 30/08/2025 
+## [1.0.0] - 2025-08-30
 
 ### Added
 - GitHub Actions workflow for CI (coding standards, static analysis, tests).

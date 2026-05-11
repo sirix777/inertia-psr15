@@ -9,7 +9,7 @@ return ConfigBuilder::create()
     ->inDir(__DIR__ . '/src')
     ->inDir(__DIR__ . '/test')
     ->setRules([
-        '@PHP81Migration' => true,
+        '@PHP8x2Migration' => true,
         'PedroTroller/line_break_between_method_arguments' => [
             'max-args' => 4,
             'max-length' => 140,
