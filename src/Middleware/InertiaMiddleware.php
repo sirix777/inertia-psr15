@@ -11,13 +11,19 @@ use Psr\Http\Server\RequestHandlerInterface as Handler;
 use Sirix\InertiaPsr15\Service\InertiaFactoryInterface;
 use Sirix\InertiaPsr15\Service\InertiaInterface;
 
+use function explode;
+use function implode;
 use function in_array;
+use function ltrim;
+use function preg_match;
+use function str_contains;
+use function strcasecmp;
+use function strlen;
+use function trim;
 
 class InertiaMiddleware implements MiddlewareInterface
 {
     public const INERTIA_ATTRIBUTE = 'inertia';
-
-    private InertiaInterface $inertia;
 
     /**
      * InertiaMiddleware constructor.
@@ -29,33 +35,33 @@ class InertiaMiddleware implements MiddlewareInterface
 
     public function process(Request $request, Handler $handler): Response
     {
-        $this->inertia = $this->inertiaFactory->fromRequest($request);
+        $inertia = $this->inertiaFactory->fromRequest($request);
 
-        $request = $request->withAttribute($this->attributeKey, $this->inertia);
+        $request = $request->withAttribute($this->attributeKey, $inertia);
+
+        $response = $handler->handle($request);
+
+        $response = $this->withInertiaVary($response);
 
         if (! $request->hasHeader('X-Inertia')) {
-            return $handler->handle($request);
+            return $response;
         }
 
-        /** @var Response */
-        $response = $handler->handle($request)
-            ->withAddedHeader('Vary', 'X-Inertia')
-            ->withAddedHeader('X-Inertia', 'true')
-        ;
-        $response = $this->checkVersion($request, $response);
+        $response = $response->withAddedHeader('X-Inertia', 'true');
+        $response = $this->checkVersion($request, $response, $inertia);
 
         return $this->changeRedirectCode($request, $response);
     }
 
-    private function checkVersion(Request $request, Response $response): Response
+    private function checkVersion(Request $request, Response $response, InertiaInterface $inertia): Response
     {
         if (
             'GET' === $request->getMethod()
-            && $request->getHeaderLine('X-Inertia-Version') !== (string) $this->inertia->getVersion()
+            && $request->getHeaderLine('X-Inertia-Version') !== (string) $inertia->getVersion()
         ) {
             return $response
                 ->withStatus(409)
-                ->withHeader('X-Inertia-Location', (string) $request->getUri())
+                ->withHeader('X-Inertia-Location', $this->requestLocation($request))
             ;
         }
 
@@ -72,7 +78,23 @@ class InertiaMiddleware implements MiddlewareInterface
             302 === $response->getStatusCode()
             && in_array($request->getMethod(), ['PUT', 'PATCH', 'DELETE'])
         ) {
-            return $response->withStatus(303);
+            $response = $response->withStatus(303);
+        }
+
+        if (
+            300 <= $response->getStatusCode()
+            && 400 > $response->getStatusCode()
+            && $response->hasHeader('Location')
+            && 'prefetch' !== $request->getHeaderLine('Purpose')
+        ) {
+            $location = $response->getHeaderLine('Location');
+            if (str_contains($location, '#') && $this->isSafeRedirectLocation($location)) {
+                return $response
+                    ->withStatus(409)
+                    ->withHeader('X-Inertia-Redirect', $location)
+                    ->withoutHeader('Location')
+                ;
+            }
         }
 
         // For External redirects
@@ -85,5 +107,51 @@ class InertiaMiddleware implements MiddlewareInterface
         }
 
         return $response;
+    }
+
+    private function withInertiaVary(Response $response): Response
+    {
+        $tokens = [];
+        foreach (explode(',', $response->getHeaderLine('Vary')) as $token) {
+            $token = trim($token);
+            if ('' !== $token) {
+                $tokens[] = $token;
+            }
+        }
+
+        foreach ($tokens as $token) {
+            if (0 === strcasecmp($token, 'X-Inertia')) {
+                return $response;
+            }
+        }
+
+        if ([] === $tokens) {
+            return $response->withAddedHeader('Vary', 'X-Inertia');
+        }
+
+        $tokens[] = 'X-Inertia';
+
+        return $response->withHeader('Vary', implode(', ', $tokens));
+    }
+
+    private function isSafeRedirectLocation(string $location): bool
+    {
+        return '' !== $location
+            && 8192 >= strlen($location)
+            && 1 !== preg_match('/[\x00-\x1F\x7F]/', $location);
+    }
+
+    private function requestLocation(Request $request): string
+    {
+        $uri      = $request->getUri();
+        $path     = '/' . ltrim($uri->getPath(), '/\\');
+        $query    = $uri->getQuery();
+        $location = $path . ('' === $query ? '' : '?' . $query);
+
+        if (8192 < strlen($location) || str_contains($location, '\\') || 1 === preg_match('/[\x00-\x1F\x7F]/', $location)) {
+            return '/';
+        }
+
+        return $location;
     }
 }

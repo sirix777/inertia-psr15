@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Sirix\InertiaPsr15\Service;
+namespace Sirix\InertiaPsr15\View;
 
 use Closure;
 use Sirix\InertiaPsr15\Model\Page;
@@ -29,6 +29,8 @@ class RootViewProviderDecorator implements RootViewProviderInterface
     {
         $decorated = $this->decorated;
 
-        return $decorated($this->rootView, ['page' => $page]);
+        return $decorated($this->rootView, [
+            'page' => $page,
+        ]);
     }
 }

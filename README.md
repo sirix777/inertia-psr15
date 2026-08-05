@@ -46,6 +46,12 @@ was selected as the template engine:
 composer require sirix/inertia-psr15
 ```
 
+### Container requirements
+
+The built-in factories resolve container services strictly through PSR-11. The following services must be registered with values implementing their declared interfaces: `ResponseFactoryInterface`, `StreamFactoryInterface`, `RootViewProviderInterface`, `TemplateRendererInterface`, and `InertiaFactoryInterface`.
+
+The `config` service is optional. When present, it must be an array; `inertia_psr15.root_view` is an optional non-empty string and defaults to `app.html.twig`. Missing services, wrong service types, and invalid configuration fail with an exception that identifies the factory and required value.
+
 2- Add the inertia middleware to the middlewares pipeline:
 
 ```php
@@ -63,7 +69,7 @@ $app->pipe(RouteMiddleware::class);
 // ...
 ```
 
-3- Please refer to [InertiaJS](https://inertiajs.com/client-side-setup) to install a client-side adapter.
+3- Please refer to the [Inertia v3 client-side setup](https://inertiajs.com/docs/v3/installation/client-side-setup) to install a client-side adapter.
 
 4- Using Vite is recommended to build the front-end application, however, to render the built JS/CSS
 assets in a Twig template, the following extension can be used:
@@ -125,6 +131,16 @@ return [
 6- The adapter needs just one backend template to render the application, and by default it will look for 
 `templates/app.html.twig` if a default template is not configured, the app template can be like the following:
 
+The template name can be changed through application configuration:
+
+```php
+return [
+    'inertia_psr15' => [
+        'root_view' => 'inertia/app.html.twig',
+    ],
+];
+```
+
 ```html
 <!DOCTYPE html>
 <html lang="en" class="dark">
@@ -145,6 +161,24 @@ return [
 ```
 >> The template uses Vite extension (vite_entry_link_tags) to render the assets and Inertia extension 
 > `inertia(page)` to mount the front-end application.
+
+## Inertia v3
+
+Version 2.x targets Inertia v3 clients. The Twig extension renders the initial page object in the v3 `<script data-page="app" type="application/json">` format and provides a separate `<div id="app"></div>` mount point.
+
+For a complete 1.x to 2.x migration guide, see [docs/inertia-v3-migration.md](docs/inertia-v3-migration.md).
+
+Use `Inertia::optional()` for props that should only be included when explicitly requested in a partial reload:
+
+```php
+use Sirix\InertiaPsr15\Service\Inertia;
+
+$inertia->render('Users/Index', [
+    'users' => Inertia::optional(fn () => $users),
+]);
+```
+
+`Inertia::lazy()` and `LazyProp` were removed in 2.x.
 
 
 After successful configuration, the adapter can be used to render the front-end component instead of the HTML templates:
