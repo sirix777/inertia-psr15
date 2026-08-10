@@ -38,7 +38,7 @@ final class OnceProp extends Prop
         if ($until instanceof DateInterval) {
             $until = (new DateTimeImmutable())->add($until);
         } elseif (is_int($until)) {
-            $until = (new DateTimeImmutable())->modify('+' . $until . ' seconds');
+            $until = (new DateTimeImmutable())->add(new DateInterval('PT' . $until . 'S'));
         }
 
         $prop            = clone $this;
