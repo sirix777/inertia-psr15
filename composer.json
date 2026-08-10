@@ -27,6 +27,10 @@
         "phpunit/phpunit": "^10.5 || ^11.5",
         "twig/twig": "^3.21"
     },
+    "suggest": {
+        "mezzio/mezzio-template": "Required to use the built-in RootViewProvider factory.",
+        "twig/twig": "Required to use the built-in Twig Inertia extension."
+    },
     "autoload": {
         "psr-4": {
             "Sirix\\InertiaPsr15\\": "src/"
@@ -73,9 +77,5 @@
             "@test-unit"
         ],
         "test-unit": "php vendor/bin/phpunit --testsuite=unit --testdox"
-    },
-    "suggest": {
-        "mezzio/mezzio-template": "Required to use the built-in RootViewProvider factory.",
-        "twig/twig": "Required to use the built-in Twig Inertia extension."
     }
 }
