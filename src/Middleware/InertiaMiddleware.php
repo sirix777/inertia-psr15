@@ -8,8 +8,11 @@ use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface as Handler;
+use Sirix\InertiaPsr15\Exception\InvalidInertiaArgumentException;
 use Sirix\InertiaPsr15\Service\InertiaFactoryInterface;
 use Sirix\InertiaPsr15\Service\InertiaInterface;
+use Sirix\InertiaPsr15\Service\InertiaVersionProviderAwareInterface;
+use Sirix\InertiaPsr15\Service\InertiaVersionProviderInterface;
 
 use function explode;
 use function implode;
@@ -30,14 +33,33 @@ class InertiaMiddleware implements MiddlewareInterface
      */
     public function __construct(
         private readonly InertiaFactoryInterface $inertiaFactory,
-        private readonly string $attributeKey = self::INERTIA_ATTRIBUTE
+        private readonly string $attributeKey = self::INERTIA_ATTRIBUTE,
+        private readonly ?InertiaVersionProviderInterface $versionProvider = null
     ) {}
 
     public function process(Request $request, Handler $handler): Response
     {
         $inertia = $this->inertiaFactory->fromRequest($request);
 
+        $currentVersion = $this->versionProvider?->currentVersion($request);
+        if (null !== $currentVersion) {
+            $this->assertSafeVersion($currentVersion);
+            if ($inertia instanceof InertiaVersionProviderAwareInterface) {
+                $inertia->setVersionFromProvider($currentVersion);
+            } else {
+                $inertia->version($currentVersion);
+            }
+        }
+
         $request = $request->withAttribute($this->attributeKey, $inertia);
+
+        if (null !== $currentVersion && $this->versionMismatch($request, $currentVersion)) {
+            return $this->withInertiaVary(
+                $inertia->location($this->requestLocation($request))
+                    ->withHeader('X-Inertia-Version', $currentVersion)
+                    ->withoutHeader('X-Inertia')
+            );
+        }
 
         $response = $handler->handle($request);
 
@@ -48,24 +70,35 @@ class InertiaMiddleware implements MiddlewareInterface
         }
 
         $response = $response->withAddedHeader('X-Inertia', 'true');
-        $response = $this->checkVersion($request, $response, $inertia);
+        if (null === $currentVersion) {
+            $response = $this->checkVersion($request, $response, $inertia);
+        }
 
         return $this->changeRedirectCode($request, $response);
     }
 
     private function checkVersion(Request $request, Response $response, InertiaInterface $inertia): Response
     {
-        if (
-            'GET' === $request->getMethod()
-            && $request->getHeaderLine('X-Inertia-Version') !== (string) $inertia->getVersion()
-        ) {
+        if ($this->versionMismatch($request, $inertia->getVersion())) {
+            $this->assertSafeVersion((string) $inertia->getVersion());
+
             return $response
                 ->withStatus(409)
                 ->withHeader('X-Inertia-Location', $this->requestLocation($request))
+                ->withHeader('X-Inertia-Version', (string) $inertia->getVersion())
             ;
         }
 
         return $response;
+    }
+
+    private function versionMismatch(Request $request, ?string $currentVersion): bool
+    {
+        return null !== $currentVersion
+            && $request->hasHeader('X-Inertia')
+            && 'GET' === $request->getMethod()
+            && '' !== $request->getHeaderLine('X-Inertia-Version')
+            && $request->getHeaderLine('X-Inertia-Version') !== $currentVersion;
     }
 
     private function changeRedirectCode(Request $request, Response $response): Response
@@ -139,6 +172,13 @@ class InertiaMiddleware implements MiddlewareInterface
         return '' !== $location
             && 8192 >= strlen($location)
             && 1 !== preg_match('/[\x00-\x1F\x7F]/', $location);
+    }
+
+    private function assertSafeVersion(string $version): void
+    {
+        if (8192 < strlen($version) || 1 === preg_match('/[\x00-\x1F\x7F]/', $version)) {
+            throw new InvalidInertiaArgumentException('Inertia version must be a header-safe value.');
+        }
     }
 
     private function requestLocation(Request $request): string

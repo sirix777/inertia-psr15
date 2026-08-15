@@ -12,6 +12,7 @@ use Laminas\Diactoros\StreamFactory;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\ResponseInterface;
 use RuntimeException;
+use Sirix\InertiaPsr15\Exception\InvalidInertiaArgumentException;
 use Sirix\InertiaPsr15\Model\Page;
 use Sirix\InertiaPsr15\Service\Inertia;
 use Sirix\InertiaPsr15\View\RootViewProviderInterface;
@@ -21,6 +22,39 @@ use function json_decode;
 
 final class InertiaV3Test extends TestCase
 {
+    public function testProtocolValidationUsesThePackageSpecificException(): void
+    {
+        $exception = null;
+
+        try {
+            Inertia::scroll([], '../data');
+        } catch (InvalidInertiaArgumentException $caught) {
+            $exception = $caught;
+        }
+
+        self::assertInstanceOf(InvalidArgumentException::class, $exception);
+    }
+
+    public function testUnrescuedPropFailuresPreserveTheOriginalException(): void
+    {
+        $original = new RuntimeException('database unavailable');
+
+        try {
+            $this->inertia([
+                'X-Inertia' => 'true',
+            ])->render('Dashboard', [
+                'stats' => [
+                    'summary' => static function() use ($original) {
+                        throw $original;
+                    },
+                ],
+            ]);
+            self::fail('The prop resolver failure must be rethrown.');
+        } catch (RuntimeException $exception) {
+            self::assertSame($original, $exception);
+        }
+    }
+
     public function testSerializesV3MetadataAndNeverInvokesPlainCallableStrings(): void
     {
         $inertia = $this->inertia([
@@ -117,7 +151,7 @@ final class InertiaV3Test extends TestCase
 
     public function testRejectsUnsafeWrapperInput(): void
     {
-        $this->expectException(InvalidArgumentException::class);
+        $this->expectException(InvalidInertiaArgumentException::class);
         Inertia::scroll([], '../data');
     }
 
@@ -136,7 +170,7 @@ final class InertiaV3Test extends TestCase
             try {
                 $factory();
                 self::fail('Unsafe protocol metadata must be rejected.');
-            } catch (InvalidArgumentException) {
+            } catch (InvalidInertiaArgumentException) {
                 self::addToAssertionCount(1);
             }
         }
@@ -148,7 +182,7 @@ final class InertiaV3Test extends TestCase
             'X-Inertia' => 'true',
         ]);
 
-        $this->expectException(InvalidArgumentException::class);
+        $this->expectException(InvalidInertiaArgumentException::class);
         $inertia->location("/safe\r\nX-Evil: yes");
     }
 
@@ -162,7 +196,7 @@ final class InertiaV3Test extends TestCase
             try {
                 $factory();
                 self::fail('Unsafe once/deferred metadata must be rejected.');
-            } catch (InvalidArgumentException) {
+            } catch (InvalidInertiaArgumentException) {
                 self::addToAssertionCount(1);
             }
         }
@@ -280,7 +314,7 @@ final class InertiaV3Test extends TestCase
             try {
                 Inertia::once(null)->as($key);
                 self::fail('Unsafe once key must be rejected.');
-            } catch (InvalidArgumentException) {
+            } catch (InvalidInertiaArgumentException) {
                 self::addToAssertionCount(1);
             }
         }
@@ -359,6 +393,96 @@ final class InertiaV3Test extends TestCase
 
         self::assertArrayNotHasKey('auth', $page['props']);
         self::assertSame(['auth'], $page['rescuedProps']);
+    }
+
+    public function testPartialOnlyThenExceptFiltersTopLevelAndNestedPathsInOrder(): void
+    {
+        $page = $this->page($this->inertia([
+            'X-Inertia'                   => 'true',
+            'X-Inertia-Partial-Component' => 'Dashboard',
+            'X-Inertia-Partial-Data'      => 'projects,auth.user,auth.notifications',
+            'X-Inertia-Partial-Except'    => 'projects,auth.notifications',
+        ])->render('Dashboard', [
+            'projects' => ['one'],
+            'auth'     => static fn (): array => [
+                'user'          => 'Jane',
+                'notifications' => ['New message'],
+                'role'          => 'admin',
+            ],
+            'settings' => [
+                'theme' => 'dark',
+            ],
+        ]));
+
+        self::assertSame([
+            'errors' => [],
+            'auth'   => [
+                'user' => 'Jane',
+            ],
+        ], $page['props']);
+    }
+
+    public function testPartialOnlyThenExceptDoesNotResolveAWhollyExcludedNestedBranch(): void
+    {
+        $page = $this->page($this->inertia([
+            'X-Inertia'                   => 'true',
+            'X-Inertia-Partial-Component' => 'Dashboard',
+            'X-Inertia-Partial-Data'      => 'auth.user',
+            'X-Inertia-Partial-Except'    => 'auth.user',
+        ])->render('Dashboard', [
+            'auth' => static function(): never {
+                throw new RuntimeException('must not resolve');
+            },
+        ]));
+
+        self::assertSame([
+            'errors' => [],
+        ], $page['props']);
+    }
+
+    public function testAlwaysPropIgnoresPartialOnlyAndExceptFilters(): void
+    {
+        $page = $this->page($this->inertia([
+            'X-Inertia'                   => 'true',
+            'X-Inertia-Partial-Component' => 'Dashboard',
+            'X-Inertia-Partial-Data'      => 'projects',
+            'X-Inertia-Partial-Except'    => 'timestamp',
+        ])->render('Dashboard', [
+            'projects'  => ['one'],
+            'timestamp' => Inertia::always(static fn (): string => '2026-08-15T08:00:00Z'),
+            'settings'  => [
+                'theme' => 'dark',
+            ],
+        ]));
+
+        self::assertSame([
+            'errors'    => [],
+            'projects'  => ['one'],
+            'timestamp' => '2026-08-15T08:00:00Z',
+        ], $page['props']);
+    }
+
+    public function testPartialFiltersAreIgnoredWhenTheComponentChanges(): void
+    {
+        $page = $this->page($this->inertia([
+            'X-Inertia'                   => 'true',
+            'X-Inertia-Partial-Component' => 'Dashboard',
+            'X-Inertia-Partial-Data'      => 'projects',
+            'X-Inertia-Partial-Except'    => 'settings',
+        ])->render('Login', [
+            'projects' => ['one'],
+            'settings' => [
+                'theme' => 'dark',
+            ],
+        ]));
+
+        self::assertSame([
+            'errors'   => [],
+            'projects' => ['one'],
+            'settings' => [
+                'theme' => 'dark',
+            ],
+        ], $page['props']);
     }
 
     public function testPartialScrollPrependIntentUsesPrependMetadata(): void

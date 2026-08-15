@@ -7,7 +7,7 @@ namespace Sirix\InertiaPsr15\Model;
 use DateInterval;
 use DateTimeImmutable;
 use DateTimeInterface;
-use InvalidArgumentException;
+use Sirix\InertiaPsr15\Exception\InvalidInertiaArgumentException;
 
 use function is_int;
 use function preg_match;
@@ -32,7 +32,7 @@ final class OnceProp extends Prop
     public function until(DateInterval|DateTimeInterface|int $until): self
     {
         if (is_int($until) && $until < 0) {
-            throw new InvalidArgumentException('A once prop expiration interval must not be negative.');
+            throw new InvalidInertiaArgumentException('A once prop expiration interval must not be negative.');
         }
 
         if ($until instanceof DateInterval) {
@@ -56,7 +56,7 @@ final class OnceProp extends Prop
             || 255 < strlen($key)
             || 1 !== preg_match('/^[^\x00-\x1F\x7F]+$/', $key)
         ) {
-            throw new InvalidArgumentException('A once prop key must be a non-empty safe string.');
+            throw new InvalidInertiaArgumentException('A once prop key must be a non-empty safe string.');
         }
 
         $prop      = clone $this;

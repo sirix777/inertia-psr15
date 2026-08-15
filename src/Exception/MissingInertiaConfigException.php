@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 namespace Sirix\InertiaPsr15\Exception;
 
-use InvalidArgumentException;
-
-class MissingInertiaConfigException extends InvalidArgumentException
+class MissingInertiaConfigException extends InvalidInertiaArgumentException
 {
     public static function fromMessage(string $message): self
     {

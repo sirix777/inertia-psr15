@@ -38,4 +38,19 @@ class InertiaExtensionTest extends TestCase
         self::assertStringContainsString('\u003C\/script\u003E', $markup);
         self::assertSame(1, substr_count($markup, '</script>'));
     }
+
+    public function testPreservesUnicodeAndSubstitutesInvalidUtf8(): void
+    {
+        $markup = (string) (new InertiaExtension())->inertia(Page::from('Dashboard', [
+            'title' => 'Привет 👋',
+        ], '/'));
+
+        self::assertStringContainsString('\u041f\u0440\u0438\u0432\u0435\u0442', $markup);
+
+        $markup = (string) (new InertiaExtension())->inertia(Page::from('Dashboard', [
+            'invalid' => "\xB1\x31",
+        ], '/'));
+
+        self::assertStringContainsString('"invalid":"\ufffd1"', $markup);
+    }
 }

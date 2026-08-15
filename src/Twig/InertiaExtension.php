@@ -28,7 +28,12 @@ class InertiaExtension extends AbstractExtension
             '<script data-page="app" type="application/json">'
             . json_encode(
                 $page,
-                JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG | JSON_THROW_ON_ERROR
+                JSON_HEX_AMP
+                | JSON_HEX_APOS
+                | JSON_HEX_QUOT
+                | JSON_HEX_TAG
+                | JSON_INVALID_UTF8_SUBSTITUTE
+                | JSON_THROW_ON_ERROR
             )
             . '</script><div id="app"></div>',
             'UTF-8'

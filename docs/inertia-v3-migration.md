@@ -1,6 +1,6 @@
 # Migrating to Inertia v3 and `sirix/inertia-psr15` 2.x
 
-This guide covers migrating an application built with Mezzio, Slim, or another PSR-15 framework from `sirix/inertia-psr15` 1.x to the upcoming 2.x release. The `2.x` branch adapts the package to the core Inertia v3 protocol.
+This guide covers migrating an application built with Mezzio, Slim, or another PSR-15 framework from `sirix/inertia-psr15` 1.x to 2.x. The package adapts the core Inertia v3 protocol to PSR-15.
 
 This package is a server-side adapter. Updating the Inertia JavaScript client, Vite, and UI components must be done in the consuming application, not in this repository.
 
@@ -12,7 +12,9 @@ Version 2.x contains three breaking changes:
 2. `Inertia::lazy()` and the `LazyProp` class have been removed. Use `Inertia::optional()` instead.
 3. Partial reloads support `X-Inertia-Partial-Except` and dot-notation paths such as `auth.notifications`.
 
-This release does not implement the complete set of new Inertia v3 server-side capabilities. In particular, the package does not yet provide APIs for `defer`, merge/scroll/once props, or history metadata. Standard page loads, navigation, asset versioning, redirects, and partial reloads remain supported.
+The package supports deferred, merge/deep-merge/prepend, scroll, once, and history metadata APIs. It also supports `Inertia::always()` and applies simultaneous `only` and `except` partial-reload headers in protocol order: `only` narrows the response and `except` removes paths from that result.
+
+Automatic framework session integration is intentionally outside this generic PSR-15 adapter. Applications may provide validation errors, named error bags, and framework-specific nested-property data through ordinary shared/page props. The dedicated v3 top-level `flash` field and its client event semantics are not implemented; an ordinary prop named `flash` is not equivalent. See the [capability matrix](inertia-v3-capabilities.md) for the complete boundary.
 
 ## Requirements
 
@@ -32,7 +34,7 @@ Review your frontend setup against the official [upgrade guide](https://inertiaj
 
 ### 1. Upgrade the server package
 
-Once 2.x is released, update the version constraint in your application:
+Update the version constraint in your application:
 
 ```sh
 composer require sirix/inertia-psr15:^2.0
@@ -132,9 +134,28 @@ Excluding props is supported as well:
 router.reload({ except: ['auth.notifications'] })
 ```
 
-If the client sends both `only` and `except`, `except` takes precedence, as specified by the Inertia protocol. Dot notation works for nested arrays at any depth, including containers returned by closures. When a literal prop key containing a dot exists at the current level, it takes precedence over interpreting that key as a nested path. Avoid such ambiguous names in new props.
+If the client sends both `only` and `except`, the adapter first applies `only`, then removes `except`; a path in both lists is excluded. Dot notation works for nested arrays at any depth, including containers returned by closures. Prop keys containing dots are normalized to nested paths before filtering, so use dot paths rather than literal dotted keys.
 
-### 5. Verify the application
+### 5. Configure early asset-version checks
+
+Implement and register `InertiaVersionProviderInterface` when the application has asset versioning. This lets the middleware reject a stale Inertia `GET` before the downstream handler runs, so application middleware cannot consume flash data, validation errors, or old input before the client performs the full reload.
+
+```php
+use Psr\Http\Message\ServerRequestInterface;
+use Sirix\InertiaPsr15\Service\InertiaVersionProviderInterface;
+
+final class AssetVersionProvider implements InertiaVersionProviderInterface
+{
+    public function currentVersion(ServerRequestInterface $request): ?string
+    {
+        return $this->assetManifest->version();
+    }
+}
+```
+
+Bind the implementation in the PSR-11 container under `InertiaVersionProviderInterface::class`. The provider is optional: without it, the adapter preserves its legacy late version check for applications that set the version in their handler. A non-null provider version is authoritative, so later `version()` calls cannot overwrite it. Returning `null` delegates version selection to the handler and preserves the late check. The early provider path is recommended because it implements the v3 short-circuit contract.
+
+### 6. Verify the application
 
 After upgrading, verify at least the following:
 
@@ -143,6 +164,8 @@ After upgrading, verify at least the following:
 3. `router.reload({ only: [...] })` returns only the selected props.
 4. `router.reload({ except: [...] })` excludes the specified props.
 5. An optional prop is absent from a standard response and only appears when explicitly requested through `only`.
+6. A stale Inertia `GET` returns `409`, `X-Inertia-Location`, and `X-Inertia-Version` without executing the page handler.
+7. A combined `only`/`except` reload excludes any overlapping path.
 
 For this package itself, run:
 
