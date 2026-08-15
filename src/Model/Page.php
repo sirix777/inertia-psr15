@@ -87,6 +87,17 @@ final class Page implements JsonSerializable
         return $page;
     }
 
+    /**
+     * @param array<string, mixed> $props
+     */
+    public function replaceProps(array $props): self
+    {
+        $page        = clone $this;
+        $page->props = $this->unpackProps($props);
+
+        return $page;
+    }
+
     public function getUrl(): ?string
     {
         return $this->url;

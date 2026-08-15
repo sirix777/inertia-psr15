@@ -26,9 +26,12 @@ use Throwable;
 
 use function array_diff;
 use function array_key_exists;
+use function array_keys;
 use function array_unique;
 use function array_values;
+use function error_log;
 use function explode;
+use function getenv;
 use function implode;
 use function is_array;
 use function json_encode;
@@ -87,7 +90,10 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
             'errors' => new stdClass(),
             ...$props,
         ];
-        $this->page = $this->page->withProps($props);
+        if ($partial['isPartial'] && '1' === getenv('INERTIA_DEBUG_PARTIAL_PROPS')) {
+            error_log('[FIX:partial-props] Replacing filtered page props: ' . implode(',', array_keys($props)));
+        }
+        $this->page = $this->page->replaceProps($props);
         $this->applyMetadata($state);
 
         if ($this->request->hasHeader('X-Inertia')) {
