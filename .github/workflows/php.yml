@@ -69,4 +69,5 @@ jobs:
         test ! -e vendor/mezzio/mezzio-template
 
     - name: Smoke-test core autoloading
-      run: php -r "require 'vendor/autoload.php'; exit(interface_exists('Sirix\\InertiaPsr15\\Service\\InertiaInterface') && class_exists('Sirix\\InertiaPsr15\\Service\\Inertia') && class_exists('Sirix\\InertiaPsr15\\Middleware\\InertiaMiddleware') ? 0 : 1);"
+      run: |
+        php -r 'require "vendor/autoload.php"; exit(interface_exists("Sirix\\InertiaPsr15\\Service\\InertiaInterface") && class_exists("Sirix\\InertiaPsr15\\Service\\Inertia") && class_exists("Sirix\\InertiaPsr15\\Middleware\\InertiaMiddleware") ? 0 : 1);'
