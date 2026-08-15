@@ -50,9 +50,13 @@ composer require sirix/inertia-psr15
 
 ### Container requirements
 
-The built-in factories resolve container services strictly through PSR-11. The following services must be registered with values implementing their declared interfaces: `ResponseFactoryInterface`, `StreamFactoryInterface`, `RootViewProviderInterface`, `TemplateRendererInterface`, and `InertiaFactoryInterface`.
+The built-in factories resolve container services strictly through PSR-11. The following services must be registered with values implementing their declared interfaces: `ResponseFactoryInterface`, `StreamFactoryInterface`, `RootViewProviderInterface`, `TemplateRendererInterface`, and `InertiaFactoryInterface`. `InertiaVersionProviderInterface` is optional; register it to enable early asset-version mismatch handling before the application handler runs.
 
 The `config` service is optional. When present, it must be an array; `inertia_psr15.root_view` is an optional non-empty string and defaults to `app.html.twig`. Missing services, wrong service types, and invalid configuration fail with an exception that identifies the factory and required value.
+
+### Exceptions
+
+Protocol-input validation throws `Sirix\InertiaPsr15\Exception\InvalidInertiaArgumentException`. It extends PHP's `InvalidArgumentException`, so existing broad catch blocks remain compatible while applications can catch the package-specific exception. `MissingInertiaConfigException` extends the same base exception. Exceptions thrown by application prop resolvers are passed through unchanged unless a deferred prop explicitly enables rescue behavior.
 
 2- Add the inertia middleware to the middlewares pipeline:
 
@@ -179,6 +183,21 @@ $inertia->render('Users/Index', [
     'users' => Inertia::optional(fn () => $users),
 ]);
 ```
+
+Use `Inertia::always()` for a top-level prop that must be included on every partial response, regardless of `only` and `except`:
+
+```php
+$inertia->render('Users/Index', [
+    'users' => $users,
+    'csrf' => Inertia::always(fn () => $csrfToken),
+]);
+```
+
+For early asset-version checks, bind an application-specific implementation of `InertiaVersionProviderInterface`. The provider is called before the downstream handler; when it returns a version, a stale Inertia `GET` receives a `409` with `X-Inertia-Location` and `X-Inertia-Version`, without consuming application flash state. Returning `null` delegates version selection to the handler and uses the backward-compatible late mismatch check.
+
+The built-in `Inertia` service implements the internal `InertiaVersionProviderAwareInterface`. It locks a non-null provider version so a legacy `$inertia->version(...)` call in the downstream handler cannot make the page version differ from the version used for mismatch handling. Applications do not register this interface; custom `InertiaInterface` implementations that do not support it retain the ordinary `version()` fallback.
+
+See [the v3 capability matrix](docs/inertia-v3-capabilities.md) and [the migration guide](docs/inertia-v3-migration.md) for supported protocol features and framework-neutral limitations.
 
 `Inertia::lazy()` and `LazyProp` were removed in 2.x.
 

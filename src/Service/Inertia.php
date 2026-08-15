@@ -5,11 +5,12 @@ declare(strict_types=1);
 namespace Sirix\InertiaPsr15\Service;
 
 use Closure;
-use InvalidArgumentException;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\StreamFactoryInterface;
+use Sirix\InertiaPsr15\Exception\InvalidInertiaArgumentException;
+use Sirix\InertiaPsr15\Model\AlwaysProp;
 use Sirix\InertiaPsr15\Model\DeferredProp;
 use Sirix\InertiaPsr15\Model\MergeProp;
 use Sirix\InertiaPsr15\Model\OnceProp;
@@ -23,6 +24,7 @@ use Sirix\InertiaPsr15\View\RootViewProviderInterface;
 use stdClass;
 use Throwable;
 
+use function array_diff;
 use function array_key_exists;
 use function array_unique;
 use function array_values;
@@ -35,13 +37,11 @@ use function strcasecmp;
 use function strlen;
 use function trim;
 
-class Inertia implements InertiaInterface
+class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
 {
-    private const PARTIAL_RELOAD_STANDARD = 'standard';
-    private const PARTIAL_RELOAD_ONLY     = 'only';
-    private const PARTIAL_RELOAD_EXCEPT   = 'except';
-
     private Page $page;
+
+    private ?string $providerVersion = null;
 
     /** @var list<string> */
     private array $sharedKeys = [];
@@ -66,23 +66,23 @@ class Inertia implements InertiaInterface
         ;
 
         $partial = $this->partialReloadContext($component);
-        if (self::PARTIAL_RELOAD_ONLY === $partial['mode']) {
-            $props = $this->onlyProps($props, $partial['paths']);
-        } elseif (self::PARTIAL_RELOAD_EXCEPT === $partial['mode']) {
-            $props = $this->exceptProps($props, $partial['paths']);
-        }
-
-        $state = new PropResolutionState(
-            self::PARTIAL_RELOAD_ONLY === $partial['mode'],
-            self::PARTIAL_RELOAD_STANDARD !== $partial['mode'],
-            self::PARTIAL_RELOAD_ONLY === $partial['mode'] ? $partial['paths'] : [],
-            self::PARTIAL_RELOAD_EXCEPT === $partial['mode'] ? $partial['paths'] : [],
+        $state   = new PropResolutionState(
+            $partial['hasOnly'],
+            $partial['isPartial'],
+            $partial['onlyPaths'],
+            $partial['exceptPaths'],
             $this->headerValues('X-Inertia-Reset'),
             $this->headerValues('X-Inertia-Except-Once-Props'),
             $this->requestHeader('X-Inertia-Infinite-Scroll-Merge-Intent')
         );
 
-        $props      = $this->resolveProps($props, '', $state);
+        $props      = $this->resolveProps(
+            $props,
+            '',
+            $state,
+            $partial['hasOnly'] ? $partial['onlyPaths'] : null,
+            $partial['exceptPaths']
+        );
         $props      = [
             'errors' => new stdClass(),
             ...$props,
@@ -99,7 +99,17 @@ class Inertia implements InertiaInterface
 
     public function version(string $version): void
     {
+        if (null !== $this->providerVersion) {
+            return;
+        }
+
         $this->page = $this->page->withVersion($version);
+    }
+
+    public function setVersionFromProvider(string $version): void
+    {
+        $this->providerVersion = $version;
+        $this->page            = $this->page->withVersion($version);
     }
 
     public function share(string $key, mixed $value = null): void
@@ -143,13 +153,18 @@ class Inertia implements InertiaInterface
         return new OptionalProp($callable);
     }
 
+    public static function always(mixed $value): AlwaysProp
+    {
+        return new AlwaysProp($value);
+    }
+
     public static function defer(callable $resolver, ?string $group = null, bool $rescue = false): DeferredProp
     {
         if (null !== $group) {
             self::assertSafeStaticPath($group, 'Deferred group');
         }
 
-        return new DeferredProp(Closure::fromCallable($resolver), $group, $rescue);
+        return new DeferredProp($resolver(...), $group, $rescue);
     }
 
     public static function merge(mixed $value): MergeProp
@@ -206,35 +221,25 @@ class Inertia implements InertiaInterface
         ;
     }
 
-    /** @return array{mode: string, paths: list<string>} */
+    /** @return array{isPartial: bool, hasOnly: bool, onlyPaths: list<string>, exceptPaths: list<string>} */
     private function partialReloadContext(string $component): array
     {
         if (! $this->request->hasHeader('X-Inertia') || $this->request->getHeaderLine('X-Inertia-Partial-Component') !== $component) {
             return [
-                'mode'  => self::PARTIAL_RELOAD_STANDARD,
-                'paths' => [],
+                'isPartial'   => false,
+                'hasOnly'     => false,
+                'onlyPaths'   => [],
+                'exceptPaths' => [],
             ];
         }
 
-        $except = $this->headerValues('X-Inertia-Partial-Except', true);
-        if ([] !== $except) {
-            return [
-                'mode'  => self::PARTIAL_RELOAD_EXCEPT,
-                'paths' => $except,
-            ];
-        }
-
-        $only = $this->headerValues('X-Inertia-Partial-Data', true);
-        if ([] !== $only) {
-            return [
-                'mode'  => self::PARTIAL_RELOAD_ONLY,
-                'paths' => $only,
-            ];
-        }
+        $exceptPaths = $this->headerValues('X-Inertia-Partial-Except', true);
 
         return [
-            'mode'  => self::PARTIAL_RELOAD_STANDARD,
-            'paths' => [],
+            'isPartial'   => true,
+            'hasOnly'     => $this->request->hasHeader('X-Inertia-Partial-Data'),
+            'onlyPaths'   => array_values(array_diff($this->headerValues('X-Inertia-Partial-Data', true), $exceptPaths)),
+            'exceptPaths' => $exceptPaths,
         ];
     }
 
@@ -275,107 +280,35 @@ class Inertia implements InertiaInterface
 
     /**
      * @param array<string, mixed> $props
-     * @param list<string>         $paths
+     * @param null|list<string>    $onlyPaths
+     * @param list<string>         $exceptPaths
      *
      * @return array<string, mixed>
-     */
-    private function onlyProps(array $props, array $paths): array
-    {
-        $selected = [];
-        $nested   = [];
-        foreach ($paths as $path) {
-            if (array_key_exists($path, $props)) {
-                $selected[$path] = $props[$path];
-
-                continue;
-            }
-            $parts = explode('.', $path, 2);
-            $head  = $parts[0];
-            $tail  = $parts[1] ?? null;
-            if (null !== $tail) {
-                $nested[$head][] = $tail;
-            }
-        }
-
-        foreach ($nested as $key => $children) {
-            if (array_key_exists($key, $selected)) {
-                continue;
-            }
-
-            if (! array_key_exists($key, $props)) {
-                continue;
-            }
-
-            if ($props[$key] instanceof Prop) {
-                $selected[$key] = $props[$key];
-
-                continue;
-            }
-            $value = $this->resolveContainer($props[$key]);
-            if (is_array($value)) {
-                $value = $this->onlyProps($value, $children);
-                if ([] !== $value) {
-                    $selected[$key] = $value;
-                }
-            }
-        }
-
-        return $selected;
-    }
-
-    /**
-     * @param array<string, mixed> $props
-     * @param list<string>         $paths
      *
-     * @return array<string, mixed>
+     * @throws Throwable
      */
-    private function exceptProps(array $props, array $paths): array
-    {
-        $nested = [];
-        foreach ($paths as $path) {
-            if (array_key_exists($path, $props)) {
-                unset($props[$path]);
-
-                continue;
-            }
-            $parts = explode('.', $path, 2);
-            $head  = $parts[0];
-            $tail  = $parts[1] ?? null;
-            if (null !== $tail) {
-                $nested[$head][] = $tail;
-            }
-        }
-
-        foreach ($nested as $key => $children) {
-            if (! array_key_exists($key, $props)) {
-                continue;
-            }
-
-            if ($props[$key] instanceof Prop) {
-                continue;
-            }
-
-            $value = $this->resolveContainer($props[$key]);
-            if (is_array($value)) {
-                $props[$key] = $this->exceptProps($value, $children);
-            }
-        }
-
-        return $props;
-    }
-
-    /**
-     * @param array<string, mixed> $props
-     *
-     * @return array<string, mixed>
-     */
-    private function resolveProps(array $props, string $basePath, PropResolutionState $state): array
-    {
+    private function resolveProps(
+        array $props,
+        string $basePath,
+        PropResolutionState $state,
+        ?array $onlyPaths = null,
+        array $exceptPaths = []
+    ): array {
         foreach ($props as $key => $value) {
-            $path  = '' === $basePath ? (string) $key : $basePath . '.' . $key;
-            $omit  = false;
-            $value = $this->resolveProp($value, $path, $state, $omit);
-            if ($omit) {
+            $always           = $this->containsAlwaysProp($value);
+            $childOnlyPaths   = $always ? null : $this->partialOnlyChildren($props, $onlyPaths, (string) $key);
+            $childExceptPaths = $always ? [] : $this->partialExceptChildren($props, $exceptPaths, (string) $key);
+            $excluded         = ! $always && $this->isExcludedPartialProp($props, $exceptPaths, (string) $key);
+            if (false === $childOnlyPaths || $excluded) {
+                unset($props[$key]);
+
+                continue;
+            }
+
+            $path             = '' === $basePath ? (string) $key : $basePath . '.' . $key;
+            $omit             = false;
+            $value            = $this->resolveProp($value, $path, $state, $omit, $childOnlyPaths, $childExceptPaths);
+            if ($omit || (null !== $childOnlyPaths && ! is_array($value)) || (null !== $childOnlyPaths && [] === $value)) {
                 unset($props[$key]);
             } else {
                 $props[$key] = $value;
@@ -385,17 +318,30 @@ class Inertia implements InertiaInterface
         return $props;
     }
 
-    private function resolveProp(mixed $value, string $path, PropResolutionState $state, bool &$omit): mixed
-    {
-        $omit            = false;
-        $optional        = false;
-        $deferred        = null;
-        $once            = null;
-        $mergeOperations = [];
-        $scroll          = null;
+    /**
+     * @param null|list<string> $onlyPaths
+     * @param list<string>      $exceptPaths
+     */
+    private function resolveProp(
+        mixed $value,
+        string $path,
+        PropResolutionState $state,
+        bool &$omit,
+        ?array $onlyPaths,
+        array $exceptPaths
+    ): mixed {
+        $omit             = false;
+        $always           = false;
+        $optional         = false;
+        $deferred         = null;
+        $once             = null;
+        $mergeOperations  = [];
+        $scroll           = null;
 
         while ($value instanceof Prop) {
-            if ($value instanceof OptionalProp) {
+            if ($value instanceof AlwaysProp) {
+                $always = true;
+            } elseif ($value instanceof OptionalProp) {
                 $optional = true;
             } elseif ($value instanceof DeferredProp) {
                 $deferred = $value;
@@ -420,7 +366,7 @@ class Inertia implements InertiaInterface
             }
         }
 
-        if (($optional || $deferred) && ! $state->explicitOnly && ! $state->isPartial) {
+        if (! $always && ($optional || $deferred) && ! $state->explicitOnly && ! $state->isPartial) {
             if ($deferred) {
                 $state->deferred[$deferred->group()][] = $path;
             }
@@ -434,6 +380,10 @@ class Inertia implements InertiaInterface
             while ($value instanceof Closure) {
                 $value = $value();
             }
+
+            if (is_array($value)) {
+                $value = $this->resolveProps($value, $path, $state, $onlyPaths, $exceptPaths);
+            }
         } catch (Throwable $exception) {
             if ($deferred && $deferred->rescue()) {
                 $state->rescued[] = $path;
@@ -443,11 +393,6 @@ class Inertia implements InertiaInterface
             }
 
             throw $exception;
-        }
-
-        if (is_array($value)) {
-            $value = $this->resolveProps($value, $path, $state);
-            $value = $this->exceptProps($value, $state->excludedChildren($path));
         }
 
         if ($scroll) {
@@ -468,17 +413,95 @@ class Inertia implements InertiaInterface
         return $value;
     }
 
-    private function resolveContainer(mixed $value): mixed
+    private function containsAlwaysProp(mixed $value): bool
     {
         while ($value instanceof Prop) {
+            if ($value instanceof AlwaysProp) {
+                return true;
+            }
+
             $value = $value->value();
         }
 
-        while ($value instanceof Closure) {
-            $value = $value();
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $props
+     * @param null|list<string>    $paths
+     *
+     * @return null|false|list<string>
+     */
+    private function partialOnlyChildren(array $props, ?array $paths, string $key): array|false|null
+    {
+        if (null === $paths) {
+            return null;
         }
 
-        return $value;
+        $children = [];
+        foreach ($paths as $path) {
+            if (array_key_exists($path, $props)) {
+                if ($path === $key) {
+                    return null;
+                }
+
+                continue;
+            }
+
+            $parts = explode('.', $path, 2);
+            if ($parts[0] === $key && isset($parts[1])) {
+                $children[] = $parts[1];
+            }
+        }
+
+        return [] === $children ? false : $children;
+    }
+
+    /**
+     * @param array<string, mixed> $props
+     * @param list<string>         $paths
+     */
+    private function isExcludedPartialProp(array $props, array $paths, string $key): bool
+    {
+        foreach ($paths as $path) {
+            if (array_key_exists($path, $props)) {
+                if ($path === $key) {
+                    return true;
+                }
+
+                continue;
+            }
+
+            $parts = explode('.', $path, 2);
+            if ($parts[0] === $key && ! isset($parts[1])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $props
+     * @param list<string>         $paths
+     *
+     * @return list<string>
+     */
+    private function partialExceptChildren(array $props, array $paths, string $key): array
+    {
+        $children = [];
+        foreach ($paths as $path) {
+            if (array_key_exists($path, $props)) {
+                continue;
+            }
+
+            $parts = explode('.', $path, 2);
+            if ($parts[0] === $key && isset($parts[1])) {
+                $children[] = $parts[1];
+            }
+        }
+
+        return $children;
     }
 
     /**
@@ -602,21 +625,21 @@ class Inertia implements InertiaInterface
     private function assertSafePropPath(string $path, string $label): void
     {
         if (! $this->isSafePath($path)) {
-            throw new InvalidArgumentException($label . ' must be a non-empty safe dot path.');
+            throw new InvalidInertiaArgumentException($label . ' must be a non-empty safe dot path.');
         }
     }
 
     private static function assertSafeStaticPath(string $path, string $label): void
     {
         if (255 < strlen($path) || 1 !== preg_match('/^[^.\x00-\x1F\x7F]+(?:\.[^.\x00-\x1F\x7F]+)*$/', $path)) {
-            throw new InvalidArgumentException($label . ' must be a non-empty safe dot path.');
+            throw new InvalidInertiaArgumentException($label . ' must be a non-empty safe dot path.');
         }
     }
 
     private function assertSafeRedirectLocation(string $location): void
     {
         if ('' === $location || 8192 < strlen($location) || 1 === preg_match('/[\x00-\x1F\x7F]/', $location)) {
-            throw new InvalidArgumentException('Redirect location must be a non-empty header-safe URI.');
+            throw new InvalidInertiaArgumentException('Redirect location must be a non-empty header-safe URI.');
         }
     }
 }

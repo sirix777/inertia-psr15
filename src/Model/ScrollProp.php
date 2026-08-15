@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Sirix\InertiaPsr15\Model;
 
 use Closure;
-use InvalidArgumentException;
+use Sirix\InertiaPsr15\Exception\InvalidInertiaArgumentException;
 
 use function array_key_exists;
 use function is_array;
@@ -23,7 +23,7 @@ final class ScrollProp extends Prop
         private readonly array|Closure|ProvidesScrollMetadata|null $metadata = null
     ) {
         if ('' === $wrapper || 255 < strlen($wrapper) || 1 !== preg_match('/^[^.\x00-\x1F\x7F]+(?:\.[^.\x00-\x1F\x7F]+)*$/', $wrapper)) {
-            throw new InvalidArgumentException('The scroll wrapper must be a safe dot path.');
+            throw new InvalidInertiaArgumentException('The scroll wrapper must be a safe dot path.');
         }
 
         parent::__construct($value);
@@ -66,7 +66,7 @@ final class ScrollProp extends Prop
             return $this->validateMetadata($metadata);
         }
 
-        throw new InvalidArgumentException('Inertia::scroll() needs pagination metadata for non-array data.');
+        throw new InvalidInertiaArgumentException('Inertia::scroll() needs pagination metadata for non-array data.');
     }
 
     /**
@@ -78,22 +78,22 @@ final class ScrollProp extends Prop
     {
         foreach (['pageName', 'previousPage', 'nextPage', 'currentPage'] as $key) {
             if (! array_key_exists($key, $metadata)) {
-                throw new InvalidArgumentException('Scroll metadata must contain ' . $key . '.');
+                throw new InvalidInertiaArgumentException('Scroll metadata must contain ' . $key . '.');
             }
         }
 
         if (! is_string($metadata['pageName']) || '' === $metadata['pageName'] || 255 < strlen($metadata['pageName']) || 1 === preg_match('/[\x00-\x1F\x7F]/', $metadata['pageName'])) {
-            throw new InvalidArgumentException('Scroll metadata pageName must be a non-empty safe string.');
+            throw new InvalidInertiaArgumentException('Scroll metadata pageName must be a non-empty safe string.');
         }
 
         foreach (['previousPage', 'nextPage', 'currentPage'] as $key) {
             $value = $metadata[$key];
             if (null !== $value && ! is_int($value) && ! is_string($value)) {
-                throw new InvalidArgumentException('Scroll metadata ' . $key . ' must be an integer, string, or null.');
+                throw new InvalidInertiaArgumentException('Scroll metadata ' . $key . ' must be an integer, string, or null.');
             }
 
             if (is_string($value) && (4096 < strlen($value) || 1 === preg_match('/[\x00-\x1F\x7F]/', $value))) {
-                throw new InvalidArgumentException('Scroll metadata ' . $key . ' must not contain control characters.');
+                throw new InvalidInertiaArgumentException('Scroll metadata ' . $key . ' must not contain control characters.');
             }
         }
 

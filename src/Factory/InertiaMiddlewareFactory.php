@@ -11,6 +11,7 @@ use Sirix\ContainerResolver\Exception\InvalidContainerServiceException;
 use Sirix\ContainerResolver\Exception\MissingContainerServiceException;
 use Sirix\InertiaPsr15\Middleware\InertiaMiddleware;
 use Sirix\InertiaPsr15\Service\InertiaFactoryInterface;
+use Sirix\InertiaPsr15\Service\InertiaVersionProviderInterface;
 
 class InertiaMiddlewareFactory
 {
@@ -21,8 +22,11 @@ class InertiaMiddlewareFactory
      */
     public function __invoke(ContainerInterface $container): InertiaMiddleware
     {
+        $resolver = ContainerResolver::forFactory($container, self::class);
+
         return new InertiaMiddleware(
-            ContainerResolver::forFactory($container, self::class)->get(InertiaFactoryInterface::class),
+            $resolver->get(InertiaFactoryInterface::class),
+            versionProvider: $resolver->optional(InertiaVersionProviderInterface::class),
         );
     }
 }

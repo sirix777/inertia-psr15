@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `InertiaVersionProviderInterface` for resolving the current asset version before the downstream handler runs.
+- `InertiaVersionProviderAwareInterface`, an internal capability that keeps a non-null provider version from being overwritten by a downstream `version()` call.
+- `Inertia::always()` for top-level props that bypass partial-reload filters.
+- An Inertia v3 protocol capability matrix.
+- `InvalidInertiaArgumentException` as the package-specific validation exception.
+
+### Changed
+- Stale Inertia `GET` requests configured with a version provider now short-circuit with `409`, `X-Inertia-Location`, and `X-Inertia-Version` before application code runs.
+- Partial reloads now apply `X-Inertia-Partial-Data` before `X-Inertia-Partial-Except`, including nested paths.
+- The legacy late mismatch response now includes `X-Inertia-Version`.
+- Protocol-input validation now throws `InvalidInertiaArgumentException`; it remains catch-compatible with `InvalidArgumentException`.
+- A version provider returning `null` now delegates to the backward-compatible late mismatch check.
+- Invalid UTF-8 bytes in initial page markup are replaced using `JSON_INVALID_UTF8_SUBSTITUTE`.
+- Application prop-resolver exceptions continue to be passed through unchanged for 2.x compatibility.
+
 ## [2.0.2] - 2026-08-14
 
 ### Changed

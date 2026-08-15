@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Sirix\InertiaPsr15\Model;
 
-use InvalidArgumentException;
+use Sirix\InertiaPsr15\Exception\InvalidInertiaArgumentException;
 
 use function array_fill_keys;
 use function array_is_list;
@@ -74,13 +74,13 @@ final class MergeProp extends Prop
         $prop = clone $this;
         foreach ($paths as $path => $field) {
             if (! is_string($path)) {
-                throw new InvalidArgumentException('Merge paths must be strings.');
+                throw new InvalidInertiaArgumentException('Merge paths must be strings.');
             }
 
             $this->assertSafePath($path, 'Merge path', true);
             if (null !== $field) {
                 if (! is_string($field)) {
-                    throw new InvalidArgumentException('Merge match paths must be strings or null.');
+                    throw new InvalidInertiaArgumentException('Merge match paths must be strings or null.');
                 }
 
                 $this->assertSafePath($field, 'Merge match path');
@@ -102,6 +102,6 @@ final class MergeProp extends Prop
             return;
         }
 
-        throw new InvalidArgumentException($label . ' must be a safe dot path.');
+        throw new InvalidInertiaArgumentException($label . ' must be a safe dot path.');
     }
 }

@@ -432,7 +432,7 @@ class InertiaTest extends TestCase
     /**
      * @throws JsonException
      */
-    public function testPartialExceptTakesPrecedenceAndDoesNotResolveOptionalProps(): void
+    public function testPartialOnlyThenExceptExcludesPathsPresentInBothHeaders(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
         $request->method('hasHeader')->willReturnMap([
@@ -476,7 +476,7 @@ class InertiaTest extends TestCase
         ]);
 
         $this->assertSame(
-            '{"component":"component","props":{"errors":{},"auth":{"user":"Jane"},"settings":{"theme":"dark"}},"url":"callback()","version":null}',
+            '{"component":"component","props":{"errors":{}},"url":"callback()","version":null}',
             $jsonResponse
         );
     }
@@ -484,7 +484,7 @@ class InertiaTest extends TestCase
     /**
      * @throws JsonException
      */
-    public function testPartialReloadTreatsDottedTopLevelKeyAsLiteral(): void
+    public function testPartialReloadNormalizesDottedKeysToNestedPaths(): void
     {
         $json = $this->renderPartialReload('feature.flag', [
             'feature.flag' => true,
@@ -502,7 +502,7 @@ class InertiaTest extends TestCase
     /**
      * @throws JsonException
      */
-    public function testPartialExceptTreatsDottedTopLevelKeyAsLiteral(): void
+    public function testPartialExceptNormalizesDottedKeysToNestedPaths(): void
     {
         $json = $this->renderPartialReload('feature.flag', [
             'feature.flag' => true,
@@ -513,7 +513,7 @@ class InertiaTest extends TestCase
         ], 'feature.flag');
 
         $this->assertSame(
-            '{"component":"component","props":{"errors":{},"feature":[],"keep":true},"url":"callback()","version":null}',
+            '{"component":"component","props":{"errors":{}},"url":"callback()","version":null}',
             $json
         );
     }

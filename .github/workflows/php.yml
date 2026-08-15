@@ -11,11 +11,22 @@ permissions:
 
 jobs:
   build:
-
+    name: PHP ${{ matrix.php }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.2", "8.3", "8.4", "8.5"]
 
     steps:
     - uses: actions/checkout@v4
+
+    - name: Set up PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{ matrix.php }}
+        coverage: none
+        tools: composer:v2
 
     - name: Validate composer.json and composer.lock
       run: composer validate --strict
@@ -35,3 +46,27 @@ jobs:
     - name: Run phpunit
       run: composer test
 
+  without-optional-renderers:
+    name: Core without optional renderers
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: "8.2"
+        coverage: none
+        tools: composer:v2
+
+    - name: Install production dependencies only
+      run: composer install --no-dev --prefer-dist --no-progress
+
+    - name: Verify optional renderers are absent
+      run: |
+        test ! -e vendor/twig/twig
+        test ! -e vendor/mezzio/mezzio-template
+
+    - name: Smoke-test core autoloading
+      run: php -r "require 'vendor/autoload.php'; exit(interface_exists('Sirix\\InertiaPsr15\\Service\\InertiaInterface') && class_exists('Sirix\\InertiaPsr15\\Service\\Inertia') && class_exists('Sirix\\InertiaPsr15\\Middleware\\InertiaMiddleware') ? 0 : 1);"
