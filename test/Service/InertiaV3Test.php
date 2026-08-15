@@ -422,6 +422,54 @@ final class InertiaV3Test extends TestCase
         ], $page['props']);
     }
 
+    public function testPartialOnlyDoesNotReintroduceUnrequestedSharedProps(): void
+    {
+        $inertia = $this->inertia([
+            'X-Inertia'                   => 'true',
+            'X-Inertia-Partial-Component' => 'Dashboard',
+            'X-Inertia-Partial-Data'      => 'auth.user',
+        ]);
+        $inertia->share('shared.flash', 'Saved');
+
+        $page = $this->page($inertia->render('Dashboard', [
+            'auth' => [
+                'user'  => 'Jane',
+                'token' => 'secret',
+            ],
+        ]));
+
+        self::assertSame([
+            'errors' => [],
+            'auth'   => [
+                'user' => 'Jane',
+            ],
+        ], $page['props']);
+    }
+
+    public function testPartialOnlyThenExceptDoesNotReintroduceNestedSharedProps(): void
+    {
+        $inertia = $this->inertia([
+            'X-Inertia'                   => 'true',
+            'X-Inertia-Partial-Component' => 'Dashboard',
+            'X-Inertia-Partial-Data'      => 'auth',
+            'X-Inertia-Partial-Except'    => 'auth.user',
+        ]);
+        $inertia->share('auth.user', [
+            'name'  => 'Jane',
+            'email' => 'jane@example.com',
+        ]);
+        $inertia->share('auth.refresh_token', 'value');
+
+        $page = $this->page($inertia->render('Dashboard'));
+
+        self::assertSame([
+            'errors' => [],
+            'auth'   => [
+                'refresh_token' => 'value',
+            ],
+        ], $page['props']);
+    }
+
     public function testPartialOnlyThenExceptDoesNotResolveAWhollyExcludedNestedBranch(): void
     {
         $page = $this->page($this->inertia([
