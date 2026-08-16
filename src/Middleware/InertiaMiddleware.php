@@ -8,15 +8,23 @@ use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface as Handler;
+use Sirix\InertiaPsr15\Exception\InertiaFlashException;
+use Sirix\InertiaPsr15\Exception\InertiaSerializationException;
 use Sirix\InertiaPsr15\Exception\InvalidInertiaArgumentException;
+use Sirix\InertiaPsr15\Exception\MissingFlashProviderException;
+use Sirix\InertiaPsr15\Exception\UnsupportedInertiaImplementationException;
 use Sirix\InertiaPsr15\Service\InertiaFactoryInterface;
+use Sirix\InertiaPsr15\Service\InertiaFlashProviderInterface;
+use Sirix\InertiaPsr15\Service\InertiaFlashStateInterface;
 use Sirix\InertiaPsr15\Service\InertiaInterface;
 use Sirix\InertiaPsr15\Service\InertiaVersionProviderAwareInterface;
 use Sirix\InertiaPsr15\Service\InertiaVersionProviderInterface;
+use Throwable;
 
 use function explode;
 use function implode;
 use function in_array;
+use function json_encode;
 use function ltrim;
 use function preg_match;
 use function str_contains;
@@ -34,12 +42,14 @@ class InertiaMiddleware implements MiddlewareInterface
     public function __construct(
         private readonly InertiaFactoryInterface $inertiaFactory,
         private readonly string $attributeKey = self::INERTIA_ATTRIBUTE,
-        private readonly ?InertiaVersionProviderInterface $versionProvider = null
+        private readonly ?InertiaVersionProviderInterface $versionProvider = null,
+        private readonly ?InertiaFlashProviderInterface $flashProvider = null
     ) {}
 
     public function process(Request $request, Handler $handler): Response
     {
         $inertia = $this->inertiaFactory->fromRequest($request);
+        $this->connectFlashProvider($request, $inertia);
 
         $currentVersion = $this->versionProvider?->currentVersion($request);
         if (null !== $currentVersion) {
@@ -54,11 +64,12 @@ class InertiaMiddleware implements MiddlewareInterface
         $request = $request->withAttribute($this->attributeKey, $inertia);
 
         if (null !== $currentVersion && $this->versionMismatch($request, $currentVersion)) {
-            return $this->withInertiaVary(
-                $inertia->location($this->requestLocation($request))
-                    ->withHeader('X-Inertia-Version', $currentVersion)
-                    ->withoutHeader('X-Inertia')
-            );
+            $response = $inertia->location($this->requestLocation($request))
+                ->withHeader('X-Inertia-Version', $currentVersion)
+                ->withoutHeader('X-Inertia')
+            ;
+
+            return $this->withInertiaVary($this->finalizeFlash($request, $response, $inertia));
         }
 
         $response = $handler->handle($request);
@@ -66,7 +77,7 @@ class InertiaMiddleware implements MiddlewareInterface
         $response = $this->withInertiaVary($response);
 
         if (! $request->hasHeader('X-Inertia')) {
-            return $response;
+            return $this->finalizeFlash($request, $response, $inertia);
         }
 
         $response = $response->withAddedHeader('X-Inertia', 'true');
@@ -74,7 +85,102 @@ class InertiaMiddleware implements MiddlewareInterface
             $response = $this->checkVersion($request, $response, $inertia);
         }
 
-        return $this->changeRedirectCode($request, $response);
+        return $this->finalizeFlash($request, $this->changeRedirectCode($request, $response), $inertia);
+    }
+
+    private function connectFlashProvider(Request $request, InertiaInterface $inertia): void
+    {
+        if (! $this->flashProvider instanceof InertiaFlashProviderInterface) {
+            return;
+        }
+
+        if (! $inertia instanceof InertiaFlashStateInterface) {
+            throw new UnsupportedInertiaImplementationException(
+                'The configured flash provider requires an Inertia implementation with flash state support.'
+            );
+        }
+
+        $inertia->setFlashResolver(fn (): array => $this->flashProvider->pull($request));
+    }
+
+    private function finalizeFlash(Request $request, Response $response, InertiaInterface $inertia): Response
+    {
+        if (! $inertia instanceof InertiaFlashStateInterface) {
+            return $response;
+        }
+
+        $control = $this->isFlashControlResponse($response);
+        if ($this->isRedirectResponse($response) || $control) {
+            $this->persistPendingFlash($request, $inertia->pendingFlash());
+        }
+
+        if ($control && $this->flashProvider instanceof InertiaFlashProviderInterface) {
+            $this->preserveFlash($request);
+        }
+
+        return $response;
+    }
+
+    /** @param array<string, mixed> $flash */
+    private function persistPendingFlash(Request $request, array $flash): void
+    {
+        if ([] === $flash) {
+            return;
+        }
+
+        if (! $this->flashProvider instanceof InertiaFlashProviderInterface) {
+            throw new MissingFlashProviderException('Cannot persist flash data for a redirect without an Inertia flash provider.');
+        }
+
+        try {
+            json_encode($flash, JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
+        } catch (Throwable $exception) {
+            if ($exception instanceof InertiaSerializationException) {
+                throw $exception;
+            }
+
+            throw new InertiaSerializationException(
+                'Unable to serialize pending Inertia flash data.',
+                $exception->getCode(),
+                previous: $exception
+            );
+        }
+
+        try {
+            $this->flashProvider->persist($request, $flash);
+        } catch (Throwable $exception) {
+            if ($exception instanceof InertiaFlashException) {
+                throw $exception;
+            }
+
+            throw new InertiaFlashException('persist', $exception);
+        }
+    }
+
+    private function preserveFlash(Request $request): void
+    {
+        try {
+            $this->flashProvider?->preserve($request);
+        } catch (Throwable $exception) {
+            if ($exception instanceof InertiaFlashException) {
+                throw $exception;
+            }
+
+            throw new InertiaFlashException('preserve', $exception);
+        }
+    }
+
+    private function isRedirectResponse(Response $response): bool
+    {
+        return 300 <= $response->getStatusCode()
+            && 400 > $response->getStatusCode()
+            && $response->hasHeader('Location');
+    }
+
+    private function isFlashControlResponse(Response $response): bool
+    {
+        return 409 === $response->getStatusCode()
+            && ($response->hasHeader('X-Inertia-Location') || $response->hasHeader('X-Inertia-Redirect'));
     }
 
     private function checkVersion(Request $request, Response $response, InertiaInterface $inertia): Response

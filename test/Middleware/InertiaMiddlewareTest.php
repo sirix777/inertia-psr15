@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace InertiaPsr15Test\Middleware;
 
+use JsonException;
+use JsonSerializable;
 use Laminas\Diactoros\Response;
 use Laminas\Diactoros\ResponseFactory;
 use Laminas\Diactoros\ServerRequest;
@@ -13,14 +15,21 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UriInterface;
 use Psr\Http\Server\RequestHandlerInterface;
+use RuntimeException;
+use Sirix\InertiaPsr15\Exception\InertiaFlashException;
+use Sirix\InertiaPsr15\Exception\InertiaSerializationException;
 use Sirix\InertiaPsr15\Exception\InvalidInertiaArgumentException;
+use Sirix\InertiaPsr15\Exception\MissingFlashProviderException;
+use Sirix\InertiaPsr15\Exception\UnsupportedInertiaImplementationException;
 use Sirix\InertiaPsr15\Middleware\InertiaMiddleware;
 use Sirix\InertiaPsr15\Model\Page;
 use Sirix\InertiaPsr15\Service\InertiaFactory;
 use Sirix\InertiaPsr15\Service\InertiaFactoryInterface;
+use Sirix\InertiaPsr15\Service\InertiaFlashProviderInterface;
 use Sirix\InertiaPsr15\Service\InertiaInterface;
 use Sirix\InertiaPsr15\Service\InertiaVersionProviderInterface;
 use Sirix\InertiaPsr15\View\RootViewProviderInterface;
+use Throwable;
 
 use function json_decode;
 use function strtolower;
@@ -602,5 +611,539 @@ class InertiaMiddlewareTest extends TestCase
         self::assertSame('/users?filter=active', $response->getHeaderLine('X-Inertia-Location'));
         self::assertSame('X-Inertia', $response->getHeaderLine('Vary'));
         self::assertFalse($response->hasHeader('X-Inertia'));
+    }
+
+    public function testFlashProviderPullsOnceForARenderedInertiaResponse(): void
+    {
+        $request = new ServerRequest([], [], '/projects', 'GET', 'php://memory', [
+            'X-Inertia' => 'true',
+        ]);
+        $provider = new class implements InertiaFlashProviderInterface {
+            public int $pulls = 0;
+
+            public function pull(ServerRequestInterface $request): array
+            {
+                ++$this->pulls;
+
+                return [
+                    'message' => 'Welcome',
+                ];
+            }
+
+            public function persist(ServerRequestInterface $request, array $flash): void {}
+
+            public function preserve(ServerRequestInterface $request): void {}
+        };
+        $root = new class implements RootViewProviderInterface {
+            public function __invoke(Page $page): string
+            {
+                return '<html></html>';
+            }
+        };
+        $factory = new InertiaFactory(new ResponseFactory(), new StreamFactory(), $root);
+        $handler = new class implements RequestHandlerInterface {
+            public function handle(ServerRequestInterface $request): ResponseInterface
+            {
+                /** @var InertiaInterface $inertia */
+                $inertia = $request->getAttribute(InertiaMiddleware::INERTIA_ATTRIBUTE);
+
+                return $inertia->render('Projects');
+            }
+        };
+
+        $response = (new InertiaMiddleware($factory, flashProvider: $provider))->process($request, $handler);
+
+        /** @var array<string, mixed> $page */
+        $page = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertSame([
+            'message' => 'Welcome',
+        ], $page['flash']);
+        self::assertSame(1, $provider->pulls);
+    }
+
+    public function testFlashProviderPersistsPendingFlashForRedirectWithoutPulling(): void
+    {
+        $request  = new ServerRequest([], [], '/projects', 'POST', 'php://memory');
+        $provider = new class implements InertiaFlashProviderInterface {
+            public int $pulls = 0;
+
+            /** @var array<string, mixed> */
+            public array $persisted = [];
+            public int $persists    = 0;
+
+            public function pull(ServerRequestInterface $request): array
+            {
+                ++$this->pulls;
+
+                return [];
+            }
+
+            public function persist(ServerRequestInterface $request, array $flash): void
+            {
+                ++$this->persists;
+                $this->persisted = $flash;
+            }
+
+            public function preserve(ServerRequestInterface $request): void {}
+        };
+        $factory = new InertiaFactory(new ResponseFactory(), new StreamFactory(), new class implements RootViewProviderInterface {
+            public function __invoke(Page $page): string
+            {
+                return '<html></html>';
+            }
+        });
+        $handler = new class implements RequestHandlerInterface {
+            public function handle(ServerRequestInterface $request): ResponseInterface
+            {
+                /** @var InertiaInterface $inertia */
+                $inertia = $request->getAttribute(InertiaMiddleware::INERTIA_ATTRIBUTE);
+                $inertia->flash('message', 'Saved');
+
+                return (new Response())->withStatus(302)->withHeader('Location', '/projects');
+            }
+        };
+
+        (new InertiaMiddleware($factory, flashProvider: $provider))->process($request, $handler);
+
+        self::assertSame([
+            'message' => 'Saved',
+        ], $provider->persisted);
+        self::assertSame(1, $provider->persists);
+        self::assertSame(0, $provider->pulls);
+
+        $emptyRedirect = new class implements RequestHandlerInterface {
+            public function handle(ServerRequestInterface $request): ResponseInterface
+            {
+                return (new Response())->withStatus(302)->withHeader('Location', '/projects');
+            }
+        };
+
+        (new InertiaMiddleware($factory, flashProvider: $provider))->process(
+            new ServerRequest([], [], '/projects', 'POST', 'php://memory', [
+                'X-Inertia' => 'true',
+            ]),
+            $emptyRedirect
+        );
+
+        self::assertSame(1, $provider->persists);
+    }
+
+    public function testEarlyMismatchPreservesFlashWithoutPullingOrHandlingTheRequest(): void
+    {
+        $request = new ServerRequest([], [], '/projects', 'GET', 'php://memory', [
+            'X-Inertia'         => 'true',
+            'X-Inertia-Version' => 'stale',
+        ]);
+        $provider = new class implements InertiaFlashProviderInterface {
+            public int $pulls     = 0;
+            public int $preserves = 0;
+
+            public function pull(ServerRequestInterface $request): array
+            {
+                ++$this->pulls;
+
+                return [];
+            }
+
+            public function persist(ServerRequestInterface $request, array $flash): void {}
+
+            public function preserve(ServerRequestInterface $request): void
+            {
+                ++$this->preserves;
+            }
+        };
+        $factory = new InertiaFactory(new ResponseFactory(), new StreamFactory(), new class implements RootViewProviderInterface {
+            public function __invoke(Page $page): string
+            {
+                return '<html></html>';
+            }
+        });
+        $version = $this->createMock(InertiaVersionProviderInterface::class);
+        $version->method('currentVersion')->willReturn('current');
+        $handler = $this->createMock(RequestHandlerInterface::class);
+        $handler->expects($this->never())->method('handle');
+
+        (new InertiaMiddleware($factory, versionProvider: $version, flashProvider: $provider))->process($request, $handler);
+
+        self::assertSame(0, $provider->pulls);
+        self::assertSame(1, $provider->preserves);
+    }
+
+    public function testRedirectWithPendingFlashFailsWithoutAProvider(): void
+    {
+        $request = new ServerRequest([], [], '/projects', 'POST', 'php://memory');
+        $factory = new InertiaFactory(new ResponseFactory(), new StreamFactory(), new class implements RootViewProviderInterface {
+            public function __invoke(Page $page): string
+            {
+                return '<html></html>';
+            }
+        });
+        $handler = new class implements RequestHandlerInterface {
+            public function handle(ServerRequestInterface $request): ResponseInterface
+            {
+                /** @var InertiaInterface $inertia */
+                $inertia = $request->getAttribute(InertiaMiddleware::INERTIA_ATTRIBUTE);
+                $inertia->flash('message', 'Saved');
+
+                return (new Response())->withStatus(302)->withHeader('Location', '/projects');
+            }
+        };
+
+        $this->expectException(MissingFlashProviderException::class);
+        (new InertiaMiddleware($factory))->process($request, $handler);
+    }
+
+    public function testRedirectDoesNotPersistPendingFlashThatCannotBeSerialized(): void
+    {
+        $request  = new ServerRequest([], [], '/projects', 'POST', 'php://memory');
+        $provider = new class implements InertiaFlashProviderInterface {
+            public int $persists = 0;
+
+            public function pull(ServerRequestInterface $request): array
+            {
+                return [];
+            }
+
+            public function persist(ServerRequestInterface $request, array $flash): void
+            {
+                ++$this->persists;
+            }
+
+            public function preserve(ServerRequestInterface $request): void {}
+        };
+        $factory = new InertiaFactory(new ResponseFactory(), new StreamFactory(), new class implements RootViewProviderInterface {
+            public function __invoke(Page $page): string
+            {
+                return '<html></html>';
+            }
+        });
+        $recursiveFlash         = [];
+        $recursiveFlash['self'] = &$recursiveFlash;
+        $handler                = new class($recursiveFlash) implements RequestHandlerInterface {
+            /** @param array<string, mixed> $flash */
+            public function __construct(private readonly array $flash) {}
+
+            public function handle(ServerRequestInterface $request): ResponseInterface
+            {
+                /** @var InertiaInterface $inertia */
+                $inertia = $request->getAttribute(InertiaMiddleware::INERTIA_ATTRIBUTE);
+                $inertia->flash('private', $this->flash);
+
+                return (new Response())->withStatus(302)->withHeader('Location', '/projects');
+            }
+        };
+
+        try {
+            (new InertiaMiddleware($factory, flashProvider: $provider))->process($request, $handler);
+            self::fail('Unserializable flash must not be persisted.');
+        } catch (InertiaSerializationException $exception) {
+            self::assertInstanceOf(JsonException::class, $exception->getPrevious());
+            self::assertSame(JSON_ERROR_RECURSION, $exception->getPrevious()->getCode());
+            self::assertStringNotContainsString('private', $exception->getMessage());
+        }
+
+        self::assertSame(0, $provider->persists);
+    }
+
+    public function testRedirectDoesNotPersistFlashWhenJsonSerializableThrows(): void
+    {
+        $request  = new ServerRequest([], [], '/projects', 'POST', 'php://memory');
+        $provider = new class implements InertiaFlashProviderInterface {
+            public int $persists = 0;
+
+            public function pull(ServerRequestInterface $request): array
+            {
+                return [];
+            }
+
+            public function persist(ServerRequestInterface $request, array $flash): void
+            {
+                ++$this->persists;
+            }
+
+            public function preserve(ServerRequestInterface $request): void {}
+        };
+        $factory = new InertiaFactory(new ResponseFactory(), new StreamFactory(), new class implements RootViewProviderInterface {
+            public function __invoke(Page $page): string
+            {
+                return '<html></html>';
+            }
+        });
+        $failure = new RuntimeException('Flash serialization failure');
+        $flash   = new class($failure) implements JsonSerializable {
+            public function __construct(private readonly RuntimeException $failure) {}
+
+            public function jsonSerialize(): mixed
+            {
+                throw $this->failure;
+            }
+        };
+        $handler = new class($flash) implements RequestHandlerInterface {
+            public function __construct(private readonly mixed $flash) {}
+
+            public function handle(ServerRequestInterface $request): ResponseInterface
+            {
+                /** @var InertiaInterface $inertia */
+                $inertia = $request->getAttribute(InertiaMiddleware::INERTIA_ATTRIBUTE);
+                $inertia->flash('private', $this->flash);
+
+                return (new Response())->withStatus(302)->withHeader('Location', '/projects');
+            }
+        };
+
+        try {
+            (new InertiaMiddleware($factory, flashProvider: $provider))->process($request, $handler);
+            self::fail('Unserializable flash must not be persisted.');
+        } catch (InertiaSerializationException $exception) {
+            self::assertSame($failure, $exception->getPrevious());
+            self::assertStringNotContainsString('Flash serialization failure', $exception->getMessage());
+        }
+
+        self::assertSame(0, $provider->persists);
+    }
+
+    public function testLateMismatchPullsOnceAndPreservesFlash(): void
+    {
+        $request = new ServerRequest([], [], '/projects', 'GET', 'php://memory', [
+            'X-Inertia'         => 'true',
+            'X-Inertia-Version' => 'stale',
+        ]);
+        $provider = new class implements InertiaFlashProviderInterface {
+            public int $pulls     = 0;
+            public int $preserves = 0;
+
+            public function pull(ServerRequestInterface $request): array
+            {
+                ++$this->pulls;
+
+                return [
+                    'message' => 'Incoming',
+                ];
+            }
+
+            public function persist(ServerRequestInterface $request, array $flash): void {}
+
+            public function preserve(ServerRequestInterface $request): void
+            {
+                ++$this->preserves;
+            }
+        };
+        $factory = new InertiaFactory(new ResponseFactory(), new StreamFactory(), new class implements RootViewProviderInterface {
+            public function __invoke(Page $page): string
+            {
+                return '<html></html>';
+            }
+        });
+        $handler = new class implements RequestHandlerInterface {
+            public function handle(ServerRequestInterface $request): ResponseInterface
+            {
+                /** @var InertiaInterface $inertia */
+                $inertia = $request->getAttribute(InertiaMiddleware::INERTIA_ATTRIBUTE);
+                $inertia->version('current');
+
+                return $inertia->render('Projects');
+            }
+        };
+
+        $response = (new InertiaMiddleware($factory, flashProvider: $provider))->process($request, $handler);
+
+        self::assertSame(409, $response->getStatusCode());
+        self::assertSame(1, $provider->pulls);
+        self::assertSame(1, $provider->preserves);
+    }
+
+    public function testExternalLocationPersistsPendingFlashAndPreservesIncomingFlash(): void
+    {
+        $request = new ServerRequest([], [], '/projects', 'POST', 'php://memory', [
+            'X-Inertia' => 'true',
+        ]);
+        $provider = new class implements InertiaFlashProviderInterface {
+            /** @var array<string, mixed> */
+            public array $persisted = [];
+            public int $pulls       = 0;
+            public int $preserves   = 0;
+
+            public function pull(ServerRequestInterface $request): array
+            {
+                ++$this->pulls;
+
+                return [];
+            }
+
+            public function persist(ServerRequestInterface $request, array $flash): void
+            {
+                $this->persisted = $flash;
+            }
+
+            public function preserve(ServerRequestInterface $request): void
+            {
+                ++$this->preserves;
+            }
+        };
+        $factory = new InertiaFactory(new ResponseFactory(), new StreamFactory(), new class implements RootViewProviderInterface {
+            public function __invoke(Page $page): string
+            {
+                return '<html></html>';
+            }
+        });
+        $handler = new class implements RequestHandlerInterface {
+            public function handle(ServerRequestInterface $request): ResponseInterface
+            {
+                /** @var InertiaInterface $inertia */
+                $inertia = $request->getAttribute(InertiaMiddleware::INERTIA_ATTRIBUTE);
+                $inertia->flash('message', 'Saved');
+
+                return $inertia->location('https://example.test/projects');
+            }
+        };
+
+        $response = (new InertiaMiddleware($factory, flashProvider: $provider))->process($request, $handler);
+
+        self::assertSame(409, $response->getStatusCode());
+        self::assertSame([
+            'message' => 'Saved',
+        ], $provider->persisted);
+        self::assertSame(0, $provider->pulls);
+        self::assertSame(1, $provider->preserves);
+    }
+
+    public function testFragmentRedirectPersistsPendingFlashAndPreservesIncomingFlash(): void
+    {
+        $request = new ServerRequest([], [], '/projects', 'POST', 'php://memory', [
+            'X-Inertia' => 'true',
+        ]);
+        $provider = new class implements InertiaFlashProviderInterface {
+            /** @var array<string, mixed> */
+            public array $persisted = [];
+            public int $pulls       = 0;
+            public int $preserves   = 0;
+
+            public function pull(ServerRequestInterface $request): array
+            {
+                ++$this->pulls;
+
+                return [];
+            }
+
+            public function persist(ServerRequestInterface $request, array $flash): void
+            {
+                $this->persisted = $flash;
+            }
+
+            public function preserve(ServerRequestInterface $request): void
+            {
+                ++$this->preserves;
+            }
+        };
+        $factory = new InertiaFactory(new ResponseFactory(), new StreamFactory(), new class implements RootViewProviderInterface {
+            public function __invoke(Page $page): string
+            {
+                return '<html></html>';
+            }
+        });
+        $handler = new class implements RequestHandlerInterface {
+            public function handle(ServerRequestInterface $request): ResponseInterface
+            {
+                /** @var InertiaInterface $inertia */
+                $inertia = $request->getAttribute(InertiaMiddleware::INERTIA_ATTRIBUTE);
+                $inertia->flash('message', 'Saved');
+
+                return (new Response())->withStatus(302)->withHeader('Location', '/projects#summary');
+            }
+        };
+
+        $response = (new InertiaMiddleware($factory, flashProvider: $provider))->process($request, $handler);
+
+        self::assertSame(409, $response->getStatusCode());
+        self::assertSame('/projects#summary', $response->getHeaderLine('X-Inertia-Redirect'));
+        self::assertSame([
+            'message' => 'Saved',
+        ], $provider->persisted);
+        self::assertSame(0, $provider->pulls);
+        self::assertSame(1, $provider->preserves);
+    }
+
+    public function testProviderFailuresAreWrappedWithTheOperationAndOriginalException(): void
+    {
+        foreach (['pull', 'persist', 'preserve'] as $operation) {
+            $request = new ServerRequest([], [], '/projects', 'POST', 'php://memory', [
+                'X-Inertia' => 'true',
+            ]);
+            $failure  = new RuntimeException('Provider failure');
+            $provider = new class($operation, $failure) implements InertiaFlashProviderInterface {
+                public function __construct(private readonly string $operation, private readonly Throwable $failure) {}
+
+                public function pull(ServerRequestInterface $request): array
+                {
+                    if ('pull' === $this->operation) {
+                        throw $this->failure;
+                    }
+
+                    return [];
+                }
+
+                public function persist(ServerRequestInterface $request, array $flash): void
+                {
+                    if ('persist' === $this->operation) {
+                        throw $this->failure;
+                    }
+                }
+
+                public function preserve(ServerRequestInterface $request): void
+                {
+                    if ('preserve' === $this->operation) {
+                        throw $this->failure;
+                    }
+                }
+            };
+            $factory = new InertiaFactory(new ResponseFactory(), new StreamFactory(), new class implements RootViewProviderInterface {
+                public function __invoke(Page $page): string
+                {
+                    return '<html></html>';
+                }
+            });
+            $handler = new class($operation) implements RequestHandlerInterface {
+                public function __construct(private readonly string $operation) {}
+
+                public function handle(ServerRequestInterface $request): ResponseInterface
+                {
+                    /** @var InertiaInterface $inertia */
+                    $inertia = $request->getAttribute(InertiaMiddleware::INERTIA_ATTRIBUTE);
+                    if ('pull' === $this->operation) {
+                        return $inertia->render('Projects');
+                    }
+
+                    $inertia->flash('message', 'Saved');
+
+                    return 'preserve' === $this->operation
+                        ? $inertia->location('/projects')
+                        : (new Response())->withStatus(302)->withHeader('Location', '/projects');
+                }
+            };
+
+            try {
+                (new InertiaMiddleware($factory, flashProvider: $provider))->process($request, $handler);
+                self::fail('The provider failure should have been wrapped.');
+            } catch (InertiaFlashException $exception) {
+                self::assertSame($operation, $exception->operation());
+                self::assertSame($failure, $exception->getPrevious());
+                self::assertStringNotContainsString('Provider failure', $exception->getMessage());
+            }
+        }
+    }
+
+    public function testFlashProviderFailsFastForAnInertiaImplementationWithoutFlashState(): void
+    {
+        $request = new ServerRequest();
+        $inertia = $this->createMock(InertiaInterface::class);
+        $factory = $this->createMock(InertiaFactoryInterface::class);
+        $factory->expects($this->once())->method('fromRequest')->with($request)->willReturn($inertia);
+        $provider = $this->createMock(InertiaFlashProviderInterface::class);
+        $handler  = $this->createMock(RequestHandlerInterface::class);
+        $handler->expects($this->never())->method('handle');
+
+        $this->expectException(UnsupportedInertiaImplementationException::class);
+        (new InertiaMiddleware($factory, flashProvider: $provider))->process($request, $handler);
     }
 }

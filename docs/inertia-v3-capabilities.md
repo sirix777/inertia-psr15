@@ -1,6 +1,6 @@
 # Inertia v3 protocol capability matrix
 
-This matrix describes the protocol surface implemented by `sirix/inertia-psr15` 2.1. It is verified against the [official Inertia v3 protocol](https://inertiajs.com/docs/v3/core-concepts/the-protocol).
+This matrix describes the protocol surface implemented by `sirix/inertia-psr15` 3.0. It is verified against the [official Inertia v3 protocol](https://inertiajs.com/docs/v3/core-concepts/the-protocol).
 
 | Area | Status | Evidence |
 | --- | --- | --- |
@@ -16,8 +16,10 @@ This matrix describes the protocol surface implemented by `sirix/inertia-psr15` 
 | Once, reset, history, shared, and rescued metadata | Supported | `InertiaV3Test` |
 | External locations, fragment redirects, and redirect normalization | Supported | `InertiaMiddlewareTest` |
 | Validation errors and `X-Inertia-Error-Bag` | Application-owned | The generic adapter always emits an empty `errors` object by default; applications may supply scoped errors as props. It does not read framework sessions or error bags. |
-| Top-level flash page field and flash event semantics | Unsupported | `Page` has no top-level `flash` field. A prop named `flash` is ordinary application data and does not implement the v3 flash event contract. |
+| Top-level flash page field and flash event semantics | Supported, optional storage integration | `InertiaInterface::flash()` emits non-empty data as top-level `page.flash`, never as `props.flash`. Register `InertiaFlashProviderInterface` to pull incoming flash and persist pending flash across redirects. |
 | Nested `ProvidesInertiaProperties`-style contract | Not provided | Return arrays or closures. Apply `Inertia::always()` to the top-level prop; nested wrappers inside arbitrary containers are not inspected before partial filtering. |
-| Validation exceptions | Supported | Invalid protocol values throw `InvalidInertiaArgumentException`, a package-specific subclass of PHP's `InvalidArgumentException`. |
+| Package exception contract | Supported | All adapter-created boundary exceptions implement `InertiaExceptionInterface`. Wrapped resolver, provider, serializer, renderer, and container exceptions retain the original throwable in `getPrevious()`. |
 
-`InertiaVersionProviderInterface` is optional for backwards compatibility. When it is absent or returns `null`, a handler may set the page version through `InertiaInterface::version()`, but mismatch detection occurs after the handler and cannot provide flash-preservation or work-avoidance guarantees. A non-null provider version enables the early short-circuit path.
+`InertiaVersionProviderInterface` is optional for backwards compatibility. When it is absent or returns `null`, a handler may set the page version through `InertiaInterface::version()`, but mismatch detection occurs after the handler. A non-null provider version enables the early short-circuit path and preserves incoming flash without pulling it before the client reloads.
+
+`InertiaFlashProviderInterface` is optional. Without it, the adapter does not read a session or any other storage: direct `flash()` values can still be rendered, but redirecting pending flash fails with `MissingFlashProviderException`. With a provider, incoming flash is read lazily for a Page response and the middleware persists pending flash before a redirect. A `props.flash` value remains ordinary application data and does not trigger the Inertia v3 flash contract.

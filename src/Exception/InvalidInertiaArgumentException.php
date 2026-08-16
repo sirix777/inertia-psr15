@@ -9,4 +9,4 @@ use InvalidArgumentException;
 /**
  * Thrown when a value cannot be represented safely by the Inertia protocol.
  */
-class InvalidInertiaArgumentException extends InvalidArgumentException {}
+class InvalidInertiaArgumentException extends InvalidArgumentException implements InertiaExceptionInterface {}

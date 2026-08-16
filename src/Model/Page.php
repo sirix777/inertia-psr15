@@ -39,7 +39,9 @@ final class Page implements JsonSerializable
         /** @var list<string> */
         private array $sharedProps = [],
         /** @var array<string, array{prop: string, expiresAt: ?int}> */
-        private array $onceProps = []
+        private array $onceProps = [],
+        /** @var array<string, mixed> */
+        private array $flash = []
     ) {}
 
     /**
@@ -229,6 +231,23 @@ final class Page implements JsonSerializable
         return $page;
     }
 
+    /**
+     * @param array<string, mixed> $flash
+     */
+    public function withFlash(array $flash): self
+    {
+        $page        = clone $this;
+        $page->flash = $flash;
+
+        return $page;
+    }
+
+    /** @return array<string, mixed> */
+    public function getFlash(): array
+    {
+        return $this->flash;
+    }
+
     /** @return array<string, mixed> */
     public function jsonSerialize(): array
     {
@@ -252,6 +271,7 @@ final class Page implements JsonSerializable
             'rescuedProps'     => $this->rescuedProps,
             'sharedProps'      => $this->sharedProps,
             'onceProps'        => $this->onceProps,
+            'flash'            => $this->flash,
         ] as $key => $value) {
             if (false !== $value && [] !== $value) {
                 $page[$key] = $value;

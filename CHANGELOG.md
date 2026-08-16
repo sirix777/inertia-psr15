@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - Unreleased
+
+### Added
+- Optional, storage-neutral `InertiaFlashProviderInterface` integration for Inertia v3 top-level `page.flash` data.
+- `InertiaInterface::flash()` for direct response flash and redirect-persisted flash.
+- `InertiaExceptionInterface` and package-specific configuration, flash, prop-resolution, serialization, rendering, and container exception types.
+
+### Changed
+- Flash is emitted as top-level `page.flash`; it is independent from an ordinary `props.flash` value and omitted when empty.
+- Registering an `InertiaFlashProviderInterface` now requires a custom `InertiaInterface` implementation to support the internal `InertiaFlashStateInterface`; unsupported implementations fail fast when the middleware creates the request's Inertia service.
+- Flash providers are optional. Without one, the adapter does not access session/storage; direct flash still renders, while redirecting pending flash throws `MissingFlashProviderException`.
+- Non-rescued application prop resolver failures are wrapped in `InertiaPropResolutionException`. The original throwable is available through `getPrevious()`.
+- Provider, serialization, rendering, and container boundary failures now use package-specific exceptions and preserve their original throwable through `getPrevious()`.
+
 ## [2.1.1] - 2026-08-15
 
 ### Fixed

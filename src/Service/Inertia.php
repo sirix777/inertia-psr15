@@ -9,6 +9,10 @@ use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\StreamFactoryInterface;
+use Sirix\InertiaPsr15\Exception\InertiaFlashException;
+use Sirix\InertiaPsr15\Exception\InertiaPropResolutionException;
+use Sirix\InertiaPsr15\Exception\InertiaRenderingException;
+use Sirix\InertiaPsr15\Exception\InertiaSerializationException;
 use Sirix\InertiaPsr15\Exception\InvalidInertiaArgumentException;
 use Sirix\InertiaPsr15\Model\AlwaysProp;
 use Sirix\InertiaPsr15\Model\DeferredProp;
@@ -34,17 +38,32 @@ use function explode;
 use function getenv;
 use function implode;
 use function is_array;
+use function is_string;
 use function json_encode;
 use function preg_match;
+use function preg_replace;
 use function strcasecmp;
 use function strlen;
 use function trim;
 
-class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
+class Inertia implements InertiaInterface, InertiaFlashStateInterface, InertiaVersionProviderAwareInterface
 {
     private Page $page;
 
     private ?string $providerVersion = null;
+
+    /** @var array<string, mixed> */
+    private array $pendingFlash = [];
+
+    /** @var null|Closure(): array<string, mixed> */
+    private ?Closure $flashResolver = null;
+
+    /** @var null|array<string, mixed> */
+    private ?array $incomingFlash = null;
+
+    private bool $flashResolutionAttempted = false;
+
+    private ?InertiaFlashException $flashResolutionFailure = null;
 
     /** @var list<string> */
     private array $sharedKeys = [];
@@ -95,12 +114,33 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
         }
         $this->page = $this->page->replaceProps($props);
         $this->applyMetadata($state);
+        $this->page = $this->page->withFlash($this->resolvedFlash());
 
         if ($this->request->hasHeader('X-Inertia')) {
-            return $this->createResponse(json_encode($this->page, JSON_THROW_ON_ERROR), 'application/json');
+            try {
+                $json = json_encode($this->page, JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
+            } catch (Throwable $exception) {
+                if ($exception instanceof InertiaSerializationException) {
+                    throw $exception;
+                }
+
+                throw new InertiaSerializationException('Unable to serialize the Inertia page.', $exception->getCode(), previous: $exception);
+            }
+
+            return $this->createResponse($json, 'application/json');
         }
 
-        return $this->createResponse(($this->rootViewProvider)($this->page), 'text/html; charset=UTF-8');
+        try {
+            $markup = ($this->rootViewProvider)($this->page);
+        } catch (Throwable $exception) {
+            if ($exception instanceof InertiaRenderingException || $exception instanceof InertiaSerializationException) {
+                throw $exception;
+            }
+
+            throw new InertiaRenderingException('Unable to render the Inertia root view.', $exception->getCode(), previous: $exception);
+        }
+
+        return $this->createResponse($markup, 'text/html; charset=UTF-8');
     }
 
     public function version(string $version): void
@@ -132,6 +172,29 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
         $this->share($key, $prop);
 
         return $prop;
+    }
+
+    public function flash(array|string $key, mixed $value = null): static
+    {
+        $flash = is_array($key) ? $key : [
+            $key => $value,
+        ];
+        $this->pendingFlash = [...$this->pendingFlash, ...$this->normalizeFlash($flash)];
+
+        return $this;
+    }
+
+    public function setFlashResolver(Closure $resolver): void
+    {
+        $this->flashResolver             = $resolver;
+        $this->incomingFlash             = null;
+        $this->flashResolutionAttempted  = false;
+        $this->flashResolutionFailure    = null;
+    }
+
+    public function pendingFlash(): array
+    {
+        return $this->pendingFlash;
     }
 
     public function getVersion(): ?string
@@ -227,6 +290,30 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
         ;
     }
 
+    /** @return array<string, mixed> */
+    private function resolvedFlash(): array
+    {
+        if ($this->flashResolutionFailure instanceof InertiaFlashException) {
+            throw $this->flashResolutionFailure;
+        }
+
+        if (! $this->flashResolutionAttempted && $this->flashResolver instanceof Closure) {
+            $this->flashResolutionAttempted = true;
+
+            try {
+                $this->incomingFlash = $this->normalizeFlash(($this->flashResolver)());
+            } catch (Throwable $exception) {
+                $this->flashResolutionFailure = $exception instanceof InertiaFlashException
+                    ? $exception
+                    : new InertiaFlashException('pull', $exception);
+
+                throw $this->flashResolutionFailure;
+            }
+        }
+
+        return [...($this->incomingFlash ?? []), ...$this->pendingFlash];
+    }
+
     /** @return array{isPartial: bool, hasOnly: bool, onlyPaths: list<string>, exceptPaths: list<string>} */
     private function partialReloadContext(string $component): array
     {
@@ -290,8 +377,6 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
      * @param list<string>         $exceptPaths
      *
      * @return array<string, mixed>
-     *
-     * @throws Throwable
      */
     private function resolveProps(
         array $props,
@@ -311,7 +396,7 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
                 continue;
             }
 
-            $path             = '' === $basePath ? (string) $key : $basePath . '.' . $key;
+            $path             = $this->appendSafePropPath($basePath, (string) $key);
             $omit             = false;
             $value            = $this->resolveProp($value, $path, $state, $omit, $childOnlyPaths, $childExceptPaths);
             if ($omit || (null !== $childOnlyPaths && ! is_array($value)) || (null !== $childOnlyPaths && [] === $value)) {
@@ -390,6 +475,19 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
             if (is_array($value)) {
                 $value = $this->resolveProps($value, $path, $state, $onlyPaths, $exceptPaths);
             }
+
+            if ($scroll) {
+                $state->scroll[$path] = $scroll->metadata($value);
+                if ($state->isReset($path)) {
+                    $state->scroll[$path]['reset'] = true;
+                }
+                $intent            = $state->scrollMergeIntent;
+                $mergeOperations[] = [
+                    'mode'    => 'prepend' === $intent ? 'prepend' : 'append',
+                    'path'    => $scroll->wrapper(),
+                    'matchOn' => null,
+                ];
+            }
         } catch (Throwable $exception) {
             if ($deferred && $deferred->rescue()) {
                 $state->rescued[] = $path;
@@ -398,20 +496,11 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
                 return null;
             }
 
-            throw $exception;
-        }
-
-        if ($scroll) {
-            $state->scroll[$path] = $scroll->metadata($value);
-            if ($state->isReset($path)) {
-                $state->scroll[$path]['reset'] = true;
+            if ($exception instanceof InertiaPropResolutionException) {
+                throw $exception;
             }
-            $intent               = $state->scrollMergeIntent;
-            $mergeOperations[]    = [
-                'mode'    => 'prepend' === $intent ? 'prepend' : 'append',
-                'path'    => $scroll->wrapper(),
-                'matchOn' => null,
-            ];
+
+            throw new InertiaPropResolutionException($path, $exception);
         }
 
         $this->registerMergeMetadata($path, $mergeOperations, $state);
@@ -628,11 +717,45 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
             && 1 === preg_match('/^[^.\x00-\x1F\x7F]+(?:\.[^.\x00-\x1F\x7F]+)*$/', $path);
     }
 
+    private function appendSafePropPath(string $basePath, string $segment): string
+    {
+        $segment = preg_replace('/[\x00-\x1F\x7F]|\xC2[\x80-\x9F]/', '', $segment) ?? '';
+        if ('' === $segment) {
+            $segment = '_';
+        }
+
+        return '' === $basePath ? $segment : $basePath . '.' . $segment;
+    }
+
     private function assertSafePropPath(string $path, string $label): void
     {
         if (! $this->isSafePath($path)) {
             throw new InvalidInertiaArgumentException($label . ' must be a non-empty safe dot path.');
         }
+    }
+
+    private function assertSafeFlashKey(mixed $key): string
+    {
+        if (! is_string($key) || '' === $key || 8192 < strlen($key) || 1 === preg_match('/[\x00-\x1F\x7F]/', $key)) {
+            throw new InvalidInertiaArgumentException('Flash keys must be non-empty control-safe strings.');
+        }
+
+        return $key;
+    }
+
+    /**
+     * @param array<array-key, mixed> $flash
+     *
+     * @return array<string, mixed>
+     */
+    private function normalizeFlash(array $flash): array
+    {
+        $normalized = [];
+        foreach ($flash as $key => $value) {
+            $normalized[$this->assertSafeFlashKey($key)] = $value;
+        }
+
+        return $normalized;
     }
 
     private static function assertSafeStaticPath(string $path, string $label): void

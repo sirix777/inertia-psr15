@@ -20,6 +20,13 @@ interface InertiaInterface
 
     public function shareOnce(string $key, mixed $value): OnceProp;
 
+    /**
+     * Queue flash data for this response or the next request after a redirect.
+     *
+     * @param array<array-key, mixed>|string $key
+     */
+    public function flash(array|string $key, mixed $value = null): static;
+
     public function getVersion(): ?string;
 
     public function encryptHistory(bool $enabled = true): void;

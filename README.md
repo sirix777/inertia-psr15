@@ -56,7 +56,7 @@ The `config` service is optional. When present, it must be an array; `inertia_ps
 
 ### Exceptions
 
-Protocol-input validation throws `Sirix\InertiaPsr15\Exception\InvalidInertiaArgumentException`. It extends PHP's `InvalidArgumentException`, so existing broad catch blocks remain compatible while applications can catch the package-specific exception. `MissingInertiaConfigException` extends the same base exception. Exceptions thrown by application prop resolvers are passed through unchanged unless a deferred prop explicitly enables rescue behavior.
+Version 3.0 introduces `Sirix\InertiaPsr15\Exception\InertiaExceptionInterface`, the marker interface implemented by package boundary exceptions. Catch it when an application needs to handle adapter failures as a group; concrete exceptions retain the original throwable in `getPrevious()` where the package wraps a provider, prop resolver, renderer, serializer, or container failure. In particular, non-rescued prop resolver failures are now wrapped in `InertiaPropResolutionException` rather than being rethrown unchanged.
 
 2- Add the inertia middleware to the middlewares pipeline:
 
@@ -170,9 +170,9 @@ return [
 
 ## Inertia v3
 
-Version 2.x targets Inertia v3 clients. The Twig extension renders the initial page object in the v3 `<script data-page="app" type="application/json">` format and provides a separate `<div id="app"></div>` mount point.
+Version 3.x targets Inertia v3 clients. The Twig extension renders the initial page object in the v3 `<script data-page="app" type="application/json">` format and provides a separate `<div id="app"></div>` mount point.
 
-For a complete 1.x to 2.x migration guide, see [docs/inertia-v3-migration.md](docs/inertia-v3-migration.md).
+For the complete 3.x migration guide, see [docs/inertia-v3-migration.md](docs/inertia-v3-migration.md).
 
 Use `Inertia::optional()` for props that should only be included when explicitly requested in a partial reload:
 
@@ -193,11 +193,27 @@ $inertia->render('Users/Index', [
 ]);
 ```
 
+### Flash data
+
+Use `InertiaInterface::flash()` to put one-time data into Inertia v3's top-level `page.flash` field:
+
+```php
+$inertia->flash('message', 'Saved');
+
+return $inertia
+    ->flash(['id' => 42])
+    ->render('Users/Index');
+```
+
+`page.flash` is distinct from an ordinary `props.flash` value. Direct flash is available on the rendered response without any session integration. To carry pending flash across redirects, register an `InertiaFlashProviderInterface` implementation in the PSR-11 container. The core package deliberately provides no session implementation; without a provider it makes no session or storage calls, and a redirect with pending flash throws `MissingFlashProviderException` instead of silently discarding the data.
+
+When a flash provider is registered, custom `InertiaInterface` implementations must also implement the internal `InertiaFlashStateInterface`. The middleware uses that capability to connect the lazy provider lifecycle; unsupported custom implementations fail fast when the middleware creates the request's Inertia service. See [the migration guide](docs/inertia-v3-migration.md#6-configure-flash-storage-when-you-need-redirect-flash) for the provider contract.
+
 For early asset-version checks, bind an application-specific implementation of `InertiaVersionProviderInterface`. The provider is called before the downstream handler; when it returns a version, a stale Inertia `GET` receives a `409` with `X-Inertia-Location` and `X-Inertia-Version`, without consuming application flash state. Returning `null` delegates version selection to the handler and uses the backward-compatible late mismatch check.
 
 The built-in `Inertia` service implements the internal `InertiaVersionProviderAwareInterface`. It locks a non-null provider version so a legacy `$inertia->version(...)` call in the downstream handler cannot make the page version differ from the version used for mismatch handling. Applications do not register this interface; custom `InertiaInterface` implementations that do not support it retain the ordinary `version()` fallback.
 
-See [the v3 capability matrix](docs/inertia-v3-capabilities.md) and [the migration guide](docs/inertia-v3-migration.md) for supported protocol features and framework-neutral limitations.
+See [the v3 capability matrix](docs/inertia-v3-capabilities.md) and [the migration guide](docs/inertia-v3-migration.md) for supported protocol features, exception-contract changes, and framework-neutral limitations.
 
 `Inertia::lazy()` and `LazyProp` were removed in 2.x.
 

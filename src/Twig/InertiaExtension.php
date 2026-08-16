@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace Sirix\InertiaPsr15\Twig;
 
-use JsonException;
+use Sirix\InertiaPsr15\Exception\InertiaSerializationException;
 use Sirix\InertiaPsr15\Model\Page;
+use Throwable;
 use Twig\Extension\AbstractExtension;
 use Twig\Markup;
 use Twig\TwigFunction;
@@ -19,14 +20,10 @@ class InertiaExtension extends AbstractExtension
         return [new TwigFunction('inertia', $this->inertia(...))];
     }
 
-    /**
-     * @throws JsonException
-     */
     public function inertia(Page $page): Markup
     {
-        return new Markup(
-            '<script data-page="app" type="application/json">'
-            . json_encode(
+        try {
+            $pageJson = json_encode(
                 $page,
                 JSON_HEX_AMP
                 | JSON_HEX_APOS
@@ -34,7 +31,18 @@ class InertiaExtension extends AbstractExtension
                 | JSON_HEX_TAG
                 | JSON_INVALID_UTF8_SUBSTITUTE
                 | JSON_THROW_ON_ERROR
-            )
+            );
+        } catch (Throwable $exception) {
+            if ($exception instanceof InertiaSerializationException) {
+                throw $exception;
+            }
+
+            throw new InertiaSerializationException('Unable to serialize the Inertia page.', $exception->getCode(), previous: $exception);
+        }
+
+        return new Markup(
+            '<script data-page="app" type="application/json">'
+            . $pageJson
             . '</script><div id="app"></div>',
             'UTF-8'
         );

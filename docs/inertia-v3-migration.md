@@ -1,20 +1,21 @@
-# Migrating to Inertia v3 and `sirix/inertia-psr15` 2.x
+# Migrating to Inertia v3 and `sirix/inertia-psr15` 3.x
 
-This guide covers migrating an application built with Mezzio, Slim, or another PSR-15 framework from `sirix/inertia-psr15` 1.x to 2.x. The package adapts the core Inertia v3 protocol to PSR-15.
+This guide covers upgrading an application built with Mezzio, Slim, or another PSR-15 framework to `sirix/inertia-psr15` 3.x. The package adapts the core Inertia v3 protocol to PSR-15.
 
 This package is a server-side adapter. Updating the Inertia JavaScript client, Vite, and UI components must be done in the consuming application, not in this repository.
 
 ## What changes
 
-Version 2.x contains three breaking changes:
+Version 3.x retains the v2 protocol changes and adds these breaking changes:
 
-1. Initial page data is passed through a JSON `<script>` element instead of the root `<div>` element's `data-page` attribute.
-2. `Inertia::lazy()` and the `LazyProp` class have been removed. Use `Inertia::optional()` instead.
-3. Partial reloads support `X-Inertia-Partial-Except` and dot-notation paths such as `auth.notifications`.
+1. `InertiaInterface` now exposes `flash()` for Inertia v3 flash data.
+2. Non-rescued application prop resolver throwables are wrapped in `InertiaPropResolutionException`; the original throwable is available through `getPrevious()`.
+3. Package boundary failures implement `InertiaExceptionInterface`, with concrete exceptions for flash, serialization, rendering, configuration, and container failures.
+4. A custom `InertiaInterface` implementation must implement the internal `InertiaFlashStateInterface` if the container registers an `InertiaFlashProviderInterface`.
 
-The package supports deferred, merge/deep-merge/prepend, scroll, once, and history metadata APIs. It also supports `Inertia::always()` and applies simultaneous `only` and `except` partial-reload headers in protocol order: `only` narrows the response and `except` removes paths from that result.
+The package supports deferred, merge/deep-merge/prepend, scroll, once, and history metadata APIs. It also supports `Inertia::always()` and applies simultaneous `only` and `except` partial-reload headers in protocol order: `only` narrows the response and `except` removes paths from that result. The v2 changes to initial JSON markup, `optional()` replacing `lazy()`, and partial reload behavior remain in force.
 
-Automatic framework session integration is intentionally outside this generic PSR-15 adapter. Applications may provide validation errors, named error bags, and framework-specific nested-property data through ordinary shared/page props. The dedicated v3 top-level `flash` field and its client event semantics are not implemented; an ordinary prop named `flash` is not equivalent. See the [capability matrix](inertia-v3-capabilities.md) for the complete boundary.
+Automatic framework session integration is intentionally outside this generic PSR-15 adapter. Applications may provide validation errors, named error bags, and framework-specific nested-property data through ordinary shared/page props. For flash across redirects, applications opt in by implementing and registering the storage-neutral provider described below. See the [capability matrix](inertia-v3-capabilities.md) for the complete boundary.
 
 ## Requirements
 
@@ -37,10 +38,10 @@ Review your frontend setup against the official [upgrade guide](https://inertiaj
 Update the version constraint in your application:
 
 ```sh
-composer require sirix/inertia-psr15:^2.0
+composer require sirix/inertia-psr15:^3.0
 ```
 
-If your application installs the package from a VCS repository, switch to the 2.x branch or tag according to your established installation method.
+If your application installs the package from a VCS repository, switch to the 3.x branch or tag according to your established installation method.
 
 ### 2. Replace `lazy()` with `optional()`
 
@@ -155,7 +156,87 @@ final class AssetVersionProvider implements InertiaVersionProviderInterface
 
 Bind the implementation in the PSR-11 container under `InertiaVersionProviderInterface::class`. The provider is optional: without it, the adapter preserves its legacy late version check for applications that set the version in their handler. A non-null provider version is authoritative, so later `version()` calls cannot overwrite it. Returning `null` delegates version selection to the handler and preserves the late check. The early provider path is recommended because it implements the v3 short-circuit contract.
 
-### 6. Verify the application
+### 6. Configure flash storage when you need redirect flash
+
+`InertiaInterface::flash()` supports a direct response without any provider:
+
+```php
+return $inertia
+    ->flash('message', 'Saved')
+    ->render('Users/Index');
+```
+
+This produces the Inertia v3 protocol field at the page top level:
+
+```json
+{
+  "props": {"flash": {"ordinary": "application data"}},
+  "flash": {"message": "Saved"}
+}
+```
+
+The two fields are intentionally independent: `props.flash` is an ordinary prop and does not implement Inertia flash event semantics. Empty flash is omitted from the page object.
+
+For incoming flash and redirects, implement the storage-neutral port and bind it in the PSR-11 container under `InertiaFlashProviderInterface::class`. `ApplicationFlashStore` below represents your framework-specific session/flash adapter; its `pull()` method must return a string-keyed flash map and consume it for the current request.
+
+```php
+use Psr\Http\Message\ServerRequestInterface;
+use Sirix\InertiaPsr15\Service\InertiaFlashProviderInterface;
+
+final class ApplicationFlashProvider implements InertiaFlashProviderInterface
+{
+    public function __construct(private readonly ApplicationFlashStore $flashStore)
+    {
+    }
+
+    public function pull(ServerRequestInterface $request): array
+    {
+        return $this->flashStore->pull($request);
+    }
+
+    public function persist(ServerRequestInterface $request, array $flash): void
+    {
+        // Store current-request flash for the next request.
+    }
+
+    public function preserve(ServerRequestInterface $request): void
+    {
+        // Keep incoming flash available for one more visit after a control response.
+    }
+}
+```
+
+For a framework bridge, order middleware as: session middleware, the framework's native flash middleware, this Inertia middleware, then routing/handler middleware. This ensures the provider sees the request-local session and flash state, while Inertia can persist or preserve flash before the response leaves the application. Use the bridge package's integration guide when it provides a more framework-specific registration order.
+
+The adapter calls `pull()` lazily and at most once for a request that renders a Page. It calls `persist()` only when pending flash must survive a redirect, and calls `preserve()` for Inertia control responses that cause a new visit. Provider failures are reported as `InertiaFlashException`, with the original failure in `getPrevious()`.
+
+The provider is optional. When it is absent, the core package does not access a session or other storage. Direct `flash()` values still render; however, a redirect carrying pending flash throws `MissingFlashProviderException` so that data is not silently lost.
+
+If your application supplies its own `InertiaInterface` implementation and also registers a flash provider, it must implement the internal `InertiaFlashStateInterface`. This lets the middleware attach the lazy resolver and inspect pending flash. Otherwise, the middleware fails fast with `UnsupportedInertiaImplementationException` when it creates the request's Inertia service.
+
+### 7. Update exception handling
+
+Catch `InertiaExceptionInterface` to handle package-created boundary failures as a group. It covers validation, configuration, flash-provider, prop-resolution, serialization, rendering, and container exceptions. Catch a concrete type when recovery differs by operation:
+
+```php
+use Sirix\InertiaPsr15\Exception\InertiaExceptionInterface;
+use Sirix\InertiaPsr15\Exception\InertiaPropResolutionException;
+
+try {
+    return $inertia->render('Users/Index', [
+        'users' => fn () => $repository->all(),
+    ]);
+} catch (InertiaPropResolutionException $exception) {
+    $cause = $exception->getPrevious();
+    // Report or recover using the original resolver failure.
+} catch (InertiaExceptionInterface $exception) {
+    // Handle a different adapter boundary failure.
+}
+```
+
+Before 3.x, a non-rescued prop resolver throwable was rethrown unchanged. In 3.x it is wrapped once in `InertiaPropResolutionException`; its original `Exception`, `Error`, or `TypeError` remains available through `getPrevious()`. Deferred props configured with rescue behavior retain their rescue semantics.
+
+### 8. Verify the application
 
 After upgrading, verify at least the following:
 
@@ -166,6 +247,9 @@ After upgrading, verify at least the following:
 5. An optional prop is absent from a standard response and only appears when explicitly requested through `only`.
 6. A stale Inertia `GET` returns `409`, `X-Inertia-Location`, and `X-Inertia-Version` without executing the page handler.
 7. A combined `only`/`except` reload excludes any overlapping path.
+8. `flash()` appears in top-level `page.flash`, while any `props.flash` value stays unchanged and separate.
+9. A render without a flash provider makes no session/storage call; a redirect with pending flash either persists through the configured provider or raises `MissingFlashProviderException`.
+10. Existing prop resolver error handling catches `InertiaPropResolutionException` (or the broader `InertiaExceptionInterface`) and reads the original error via `getPrevious()` when needed.
 
 For this package itself, run:
 
