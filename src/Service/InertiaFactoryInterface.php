@@ -8,5 +8,5 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 
 interface InertiaFactoryInterface
 {
-    public function fromRequest(Request $request): InertiaInterface;
+    public function fromRequest(Request $request, ?string $version): InertiaInterface;
 }

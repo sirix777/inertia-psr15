@@ -26,7 +26,7 @@ class RootViewProviderFactory
         try {
             $resolver         = ContainerResolver::forFactory($container, self::class);
             $templateRenderer = $resolver->get(TemplateRendererInterface::class);
-            $rootView         = ConfigReader::fromContainer($resolver)->nonEmptyString('inertia_psr15.root_view', 'app.html.twig');
+            $rootView         = ConfigReader::fromContainer($resolver)->nonEmptyString('inertia_psr15.root_view', RootViewProviderDecorator::DEFAULT_ROOT_VIEW);
 
             $callback = (static fn (string $template, array $params): string => $templateRenderer->render($template, $params));
 

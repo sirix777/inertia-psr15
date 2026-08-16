@@ -14,9 +14,9 @@ use Sirix\InertiaPsr15\Exception\InertiaFlashException;
 use Sirix\InertiaPsr15\Exception\InertiaPropResolutionException;
 use Sirix\InertiaPsr15\Exception\InertiaRenderingException;
 use Sirix\InertiaPsr15\Exception\InertiaSerializationException;
+use Sirix\InertiaPsr15\Exception\InertiaVersionException;
 use Sirix\InertiaPsr15\Exception\InvalidInertiaArgumentException;
 use Sirix\InertiaPsr15\Exception\MissingFlashProviderException;
-use Sirix\InertiaPsr15\Exception\MissingInertiaConfigException;
 use Sirix\InertiaPsr15\Exception\UnsupportedInertiaImplementationException;
 use Throwable;
 
@@ -37,8 +37,6 @@ class InertiaExceptionHierarchyTest extends TestCase
 
         yield 'configuration' => [new InertiaConfigurationException()];
 
-        yield 'missing configuration' => [new MissingInertiaConfigException()];
-
         yield 'missing flash provider' => [new MissingFlashProviderException()];
 
         yield 'unsupported implementation' => [new UnsupportedInertiaImplementationException()];
@@ -46,6 +44,8 @@ class InertiaExceptionHierarchyTest extends TestCase
         yield 'prop resolution' => [new InertiaPropResolutionException('user.name', new RuntimeException())];
 
         yield 'flash' => [new InertiaFlashException('pull', new RuntimeException())];
+
+        yield 'version' => [new InertiaVersionException(new RuntimeException())];
 
         yield 'serialization' => [new InertiaSerializationException()];
 

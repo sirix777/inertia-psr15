@@ -81,17 +81,6 @@ final class Page implements JsonSerializable
     /**
      * @param array<string, mixed> $props
      */
-    public function withProps(array $props): self
-    {
-        $page        = clone $this;
-        $page->props = self::mergeProps($page->props, $this->unpackProps($props));
-
-        return $page;
-    }
-
-    /**
-     * @param array<string, mixed> $props
-     */
     public function replaceProps(array $props): self
     {
         $page        = clone $this;
@@ -111,11 +100,6 @@ final class Page implements JsonSerializable
         $page->url = $url;
 
         return $page;
-    }
-
-    public function getVersion(): ?string
-    {
-        return $this->version;
     }
 
     public function withVersion(string $version): self

@@ -53,7 +53,31 @@ final class MergeProp extends Prop
     /** @return list<array{mode: 'append'|'deep'|'prepend', path: string, matchOn: ?string}> */
     public function operations(): array
     {
-        return $this->operations;
+        $rootOperation  = null;
+        $pathOperations = [];
+        foreach ($this->operations as $operation) {
+            if ('deep' === $operation['mode']) {
+                return [$operation];
+            }
+
+            if ('' === $operation['path']) {
+                $rootOperation = $operation;
+
+                continue;
+            }
+
+            $pathOperations[] = $operation;
+        }
+
+        if ([] !== $pathOperations) {
+            return $pathOperations;
+        }
+
+        return [$rootOperation ?? [
+            'mode'    => 'append',
+            'path'    => '',
+            'matchOn' => null,
+        ]];
     }
 
     /**

@@ -7,7 +7,7 @@ namespace Sirix\InertiaPsr15\Service;
 use Closure;
 
 /**
- * @internal middleware capability for connecting optional flash storage
+ * Public extension contract for connecting optional flash storage.
  */
 interface InertiaFlashStateInterface
 {

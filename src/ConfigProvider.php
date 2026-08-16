@@ -11,6 +11,7 @@ use Sirix\InertiaPsr15\Factory\RootViewProviderFactory;
 use Sirix\InertiaPsr15\Middleware\InertiaMiddleware;
 use Sirix\InertiaPsr15\Service\InertiaFactoryInterface;
 use Sirix\InertiaPsr15\Twig\InertiaExtension;
+use Sirix\InertiaPsr15\View\RootViewProviderDecorator;
 use Sirix\InertiaPsr15\View\RootViewProviderInterface;
 
 /**
@@ -33,7 +34,7 @@ class ConfigProvider
         return [
             'dependencies'  => $this->getDependencies(),
             'inertia_psr15' => [
-                'root_view' => 'app.html.twig',
+                'root_view' => RootViewProviderDecorator::DEFAULT_ROOT_VIEW,
             ],
         ];
     }

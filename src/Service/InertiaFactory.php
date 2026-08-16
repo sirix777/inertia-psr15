@@ -21,13 +21,14 @@ class InertiaFactory implements InertiaFactoryInterface
         $this->rootViewProvider = $rootViewProvider;
     }
 
-    public function fromRequest(Request $request): InertiaInterface
+    public function fromRequest(Request $request, ?string $version): InertiaInterface
     {
         return new Inertia(
             $request,
             $this->responseFactory,
             $this->streamFactory,
-            $this->rootViewProvider
+            $this->rootViewProvider,
+            $version
         );
     }
 }

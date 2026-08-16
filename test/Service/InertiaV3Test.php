@@ -23,6 +23,7 @@ use Sirix\InertiaPsr15\Exception\InvalidInertiaArgumentException;
 use Sirix\InertiaPsr15\Model\Page;
 use Sirix\InertiaPsr15\Model\ProvidesScrollMetadata;
 use Sirix\InertiaPsr15\Service\Inertia;
+use Sirix\InertiaPsr15\Service\InertiaFactory;
 use Sirix\InertiaPsr15\View\RootViewProviderInterface;
 use Throwable;
 use TypeError;
@@ -424,6 +425,123 @@ final class InertiaV3Test extends TestCase
         self::assertTrue($page['encryptHistory']);
         self::assertTrue($page['clearHistory']);
         self::assertTrue($page['preserveFragment']);
+    }
+
+    public function testMergeUsesTheRootMergeOperationByDefaultAndDeepMergeReplacesIt(): void
+    {
+        $page = $this->page($this->inertia([
+            'X-Inertia' => 'true',
+        ])->render('Dashboard', [
+            'users'    => Inertia::merge([[
+                'id' => 1,
+            ]]),
+            'settings' => Inertia::deepMerge([
+                'theme' => 'dark',
+            ]),
+        ]));
+
+        self::assertSame(['users'], $page['mergeProps']);
+        self::assertSame(['settings'], $page['deepMergeProps']);
+    }
+
+    public function testNestedMergeAndPrependOperationsReplaceTheRootMergeFallback(): void
+    {
+        $page = $this->page($this->inertia([
+            'X-Inertia' => 'true',
+        ])->render('Dashboard', [
+            'users'       => Inertia::merge([])->append('data'),
+            'tags'        => Inertia::merge([])->prepend('data'),
+            'latestUsers' => Inertia::merge([])->prepend(),
+        ]));
+
+        self::assertSame(['users.data'], $page['mergeProps']);
+        self::assertSame(['tags.data', 'latestUsers'], $page['prependProps']);
+    }
+
+    public function testMergeOperationChainsPublishOnlyOneRootDirection(): void
+    {
+        $page = $this->page($this->inertia([
+            'X-Inertia' => 'true',
+        ])->render('Dashboard', [
+            'appendThenPrepend' => Inertia::merge([])->append()->prepend(),
+            'prependThenAppend' => Inertia::merge([])->prepend()->append(),
+            'nestedThenPrepend' => Inertia::merge([])->append('data')->prepend(),
+        ]));
+
+        self::assertSame(['prependThenAppend', 'nestedThenPrepend.data'], $page['mergeProps']);
+        self::assertSame(['appendThenPrepend'], $page['prependProps']);
+    }
+
+    public function testResolvesPropWrappersReturnedByClosures(): void
+    {
+        $page = $this->page($this->inertia([
+            'X-Inertia' => 'true',
+        ])->render('Dashboard', [
+            'optional' => static fn () => Inertia::optional(static fn () => 'not loaded'),
+            'merged'   => static fn () => Inertia::merge([[
+                'id' => 1,
+            ]]),
+        ]));
+
+        self::assertArrayNotHasKey('optional', $page['props']);
+        self::assertSame([[
+            'id' => 1,
+        ]], $page['props']['merged']);
+        self::assertSame(['merged'], $page['mergeProps']);
+    }
+
+    public function testUsesARelativeRootUrlForAnAbsoluteRootRequestUri(): void
+    {
+        $request = new ServerRequest([], [], 'https://example.test', 'GET', 'php://memory', [
+            'X-Inertia' => 'true',
+        ]);
+        $root = new class implements RootViewProviderInterface {
+            public function __invoke(Page $page): string
+            {
+                return '<html></html>';
+            }
+        };
+
+        $page = $this->page((new Inertia($request, new ResponseFactory(), new StreamFactory(), $root))->render('Dashboard'));
+
+        self::assertSame('/', $page['url']);
+    }
+
+    public function testRejectsBlankVersionsPassedToTheConstructorAndFactory(): void
+    {
+        $request = new ServerRequest([], [], '/users', 'GET', 'php://memory', [
+            'X-Inertia' => 'true',
+        ]);
+        $root = new class implements RootViewProviderInterface {
+            public function __invoke(Page $page): string
+            {
+                return '<html></html>';
+            }
+        };
+
+        foreach ([
+            static fn () => new Inertia($request, new ResponseFactory(), new StreamFactory(), $root, ' '),
+            static fn () => (new InertiaFactory(new ResponseFactory(), new StreamFactory(), $root))->fromRequest($request, ''),
+        ] as $create) {
+            try {
+                $create();
+                self::fail('Blank versions must be rejected at every public construction boundary.');
+            } catch (InvalidInertiaArgumentException) {
+                self::addToAssertionCount(1);
+            }
+        }
+    }
+
+    public function testRejectsNonRedirectStatusForStringLocations(): void
+    {
+        foreach ([200, 304] as $status) {
+            try {
+                $this->inertia([])->location('/dashboard', $status);
+                self::fail('Only redirect status codes are valid for string locations.');
+            } catch (InvalidInertiaArgumentException) {
+                self::addToAssertionCount(1);
+            }
+        }
     }
 
     public function testResolvesExplicitDeferredPropsRescuesFailuresAndSkipsKnownOnceProps(): void
@@ -969,6 +1087,43 @@ final class InertiaV3Test extends TestCase
 
         self::assertSame(['fresh'], $page['props']['plans']);
         self::assertSame('plans', $page['onceProps']['plans']['prop']);
+    }
+
+    public function testVersionPassedToTheConstructorIsSerializedIntoThePage(): void
+    {
+        $request = new ServerRequest([], [], '/users', 'GET', 'php://memory', [
+            'X-Inertia' => 'true',
+        ]);
+        $root = new class implements RootViewProviderInterface {
+            public function __invoke(Page $page): string
+            {
+                return '<html></html>';
+            }
+        };
+        $inertia = new Inertia($request, new ResponseFactory(), new StreamFactory(), $root, 'v42');
+
+        $page = $this->page($inertia->render('Users'));
+
+        self::assertSame('v42', $page['version']);
+    }
+
+    public function testFactoryVersionArgumentIsSerializedIntoThePage(): void
+    {
+        $request = new ServerRequest([], [], '/users', 'GET', 'php://memory', [
+            'X-Inertia' => 'true',
+        ]);
+        $root = new class implements RootViewProviderInterface {
+            public function __invoke(Page $page): string
+            {
+                return '<html></html>';
+            }
+        };
+        $factory = new InertiaFactory(new ResponseFactory(), new StreamFactory(), $root);
+        $inertia = $factory->fromRequest($request, 'v42');
+
+        $page = $this->page($inertia->render('Users'));
+
+        self::assertSame('v42', $page['version']);
     }
 
     /** @param array<non-empty-string, array<string>|string> $headers */

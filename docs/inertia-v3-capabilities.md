@@ -10,7 +10,7 @@ This matrix describes the protocol surface implemented by `sirix/inertia-psr15` 
 | Background/prefetch mismatch | Supported | The adapter returns the protocol control response; the v3 client keeps background visits from forcing a navigation |
 | Partial `only`, `except`, and nested paths | Supported | `InertiaTest` and `InertiaV3Test` |
 | Combined `only` then `except` | Supported | Top-level and nested contract tests |
-| Optional and deferred props | Supported | `InertiaV3Test` |
+| Optional and deferred props, including wrappers returned from closures | Supported | `InertiaV3Test` |
 | Always props | Supported through `Inertia::always()` at the top-level prop boundary | `InertiaV3Test` |
 | Merge, deep merge, prepend, matching, and scroll metadata | Supported | `InertiaV3Test` |
 | Once, reset, history, shared, and rescued metadata | Supported | `InertiaV3Test` |
@@ -20,6 +20,6 @@ This matrix describes the protocol surface implemented by `sirix/inertia-psr15` 
 | Nested `ProvidesInertiaProperties`-style contract | Not provided | Return arrays or closures. Apply `Inertia::always()` to the top-level prop; nested wrappers inside arbitrary containers are not inspected before partial filtering. |
 | Package exception contract | Supported | All adapter-created boundary exceptions implement `InertiaExceptionInterface`. Wrapped resolver, provider, serializer, renderer, and container exceptions retain the original throwable in `getPrevious()`. |
 
-`InertiaVersionProviderInterface` is optional for backwards compatibility. When it is absent or returns `null`, a handler may set the page version through `InertiaInterface::version()`, but mismatch detection occurs after the handler. A non-null provider version enables the early short-circuit path and preserves incoming flash without pulling it before the client reloads.
+`InertiaVersionProviderInterface` is the only source of the page version. The middleware validates the provider version and passes it to `InertiaFactoryInterface::fromRequest()`, so the request-scoped service is created with the canonical version and handlers cannot override it. A non-null provider version enables the early short-circuit path and preserves incoming flash without pulling it before the client reloads. The provider is optional only for applications that deliberately run without asset versioning: when it is absent or returns `null`, pages carry `version: null` and no mismatch detection is performed.
 
 `InertiaFlashProviderInterface` is optional. Without it, the adapter does not read a session or any other storage: direct `flash()` values can still be rendered, but redirecting pending flash fails with `MissingFlashProviderException`. With a provider, incoming flash is read lazily for a Page response and the middleware persists pending flash before a redirect. A `props.flash` value remains ordinary application data and does not trigger the Inertia v3 flash contract.

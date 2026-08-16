@@ -23,6 +23,7 @@ use Sirix\InertiaPsr15\Model\Page;
 use Sirix\InertiaPsr15\Model\Prop;
 use Sirix\InertiaPsr15\Model\ProvidesScrollMetadata;
 use Sirix\InertiaPsr15\Model\ScrollProp;
+use Sirix\InertiaPsr15\Service\Internal\InertiaVersion;
 use Sirix\InertiaPsr15\Service\Internal\PropResolutionState;
 use Sirix\InertiaPsr15\View\RootViewProviderInterface;
 use stdClass;
@@ -30,13 +31,11 @@ use Throwable;
 
 use function array_diff;
 use function array_key_exists;
-use function array_keys;
 use function array_unique;
 use function array_values;
-use function error_log;
 use function explode;
-use function getenv;
 use function implode;
+use function in_array;
 use function is_array;
 use function is_string;
 use function json_encode;
@@ -46,11 +45,9 @@ use function strcasecmp;
 use function strlen;
 use function trim;
 
-class Inertia implements InertiaInterface, InertiaFlashStateInterface, InertiaVersionProviderAwareInterface
+class Inertia implements InertiaInterface, InertiaFlashStateInterface
 {
     private Page $page;
-
-    private ?string $providerVersion = null;
 
     /** @var array<string, mixed> */
     private array $pendingFlash = [];
@@ -72,18 +69,23 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface, InertiaVe
         private readonly ServerRequestInterface $request,
         private readonly ResponseFactoryInterface $responseFactory,
         private readonly StreamFactoryInterface $streamFactory,
-        private readonly RootViewProviderInterface $rootViewProvider
+        private readonly RootViewProviderInterface $rootViewProvider,
+        ?string $version = null
     ) {
         $this->page = Page::create();
+        if (null !== $version) {
+            InertiaVersion::assertValid($version);
+            $this->page = $this->page->withVersion($version);
+        }
     }
 
     /** @param array<string, mixed> $props */
-    public function render(string $component, array $props = [], ?string $url = null): ResponseInterface
+    public function render(string $component, array $props = []): ResponseInterface
     {
         $props      = $this->mergeArrays($this->page->getProps(), $this->unpackProps($props));
         $this->page = $this->page
             ->withComponent($component)
-            ->withUrl($url ?? $this->requestUrl())
+            ->withUrl($this->requestUrl())
             ->withSharedProps(array_values(array_unique($this->sharedKeys)))
         ;
 
@@ -109,9 +111,6 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface, InertiaVe
             'errors' => new stdClass(),
             ...$props,
         ];
-        if ($partial['isPartial'] && '1' === getenv('INERTIA_DEBUG_PARTIAL_PROPS')) {
-            error_log('[FIX:partial-props] Replacing filtered page props: ' . implode(',', array_keys($props)));
-        }
         $this->page = $this->page->replaceProps($props);
         $this->applyMetadata($state);
         $this->page = $this->page->withFlash($this->resolvedFlash());
@@ -141,21 +140,6 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface, InertiaVe
         }
 
         return $this->createResponse($markup, 'text/html; charset=UTF-8');
-    }
-
-    public function version(string $version): void
-    {
-        if (null !== $this->providerVersion) {
-            return;
-        }
-
-        $this->page = $this->page->withVersion($version);
-    }
-
-    public function setVersionFromProvider(string $version): void
-    {
-        $this->providerVersion = $version;
-        $this->page            = $this->page->withVersion($version);
     }
 
     public function share(string $key, mixed $value = null): void
@@ -195,11 +179,6 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface, InertiaVe
     public function pendingFlash(): array
     {
         return $this->pendingFlash;
-    }
-
-    public function getVersion(): ?string
-    {
-        return $this->page->getVersion();
     }
 
     public function encryptHistory(bool $enabled = true): void
@@ -275,6 +254,10 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface, InertiaVe
 
         if ($destination instanceof ResponseInterface) {
             return $destination;
+        }
+
+        if (! in_array($status, [301, 302, 303, 307, 308], true)) {
+            throw new InvalidInertiaArgumentException('Redirect status must be one of 301, 302, 303, 307, or 308.');
         }
 
         $this->assertSafeRedirectLocation($destination);
@@ -429,36 +412,38 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface, InertiaVe
         $mergeOperations  = [];
         $scroll           = null;
 
-        while ($value instanceof Prop) {
-            if ($value instanceof AlwaysProp) {
+        $inspectProp = function(Prop $prop) use (&$always, &$optional, &$deferred, &$once, &$mergeOperations, &$scroll): void {
+            if ($prop instanceof AlwaysProp) {
                 $always = true;
-            } elseif ($value instanceof OptionalProp) {
+            } elseif ($prop instanceof OptionalProp) {
                 $optional = true;
-            } elseif ($value instanceof DeferredProp) {
-                $deferred = $value;
-            } elseif ($value instanceof OnceProp) {
-                $once = $value;
-            } elseif ($value instanceof MergeProp) {
-                $mergeOperations = [...$mergeOperations, ...$value->operations()];
-            } elseif ($value instanceof ScrollProp) {
-                $scroll = $value;
+            } elseif ($prop instanceof DeferredProp) {
+                $deferred = $prop;
+            } elseif ($prop instanceof OnceProp) {
+                $once = $prop;
+            } elseif ($prop instanceof MergeProp) {
+                $mergeOperations = [...$mergeOperations, ...$prop->operations()];
+            } elseif ($prop instanceof ScrollProp) {
+                $scroll = $prop;
             }
+        };
+
+        while ($value instanceof Prop) {
+            $inspectProp($value);
             $value = $value->value();
         }
 
-        $this->registerOnceMetadata($once, $path, $state);
+        $isCachedOnce = function() use (&$once, $path, $state): bool {
+            return $once && ! $once->isFresh() && ! $state->explicitlyRequested($path) && $state->exceptOnce($once->key() ?? $path);
+        };
+        $shouldOmit = function() use ($isCachedOnce, &$always, &$optional, &$deferred, $state): bool {
+            return $isCachedOnce()
+                || (! $always && ($optional || $deferred) && ! $state->explicitOnly && ! $state->isPartial);
+        };
 
-        if ($once) {
-            $onceKey = $once->key() ?? $path;
-            if (! $once->isFresh() && ! $state->explicitlyRequested($path) && $state->exceptOnce($onceKey)) {
-                $omit = true;
-
-                return null;
-            }
-        }
-
-        if (! $always && ($optional || $deferred) && ! $state->explicitOnly && ! $state->isPartial) {
-            if ($deferred) {
+        if ($shouldOmit()) {
+            $this->registerOnceMetadata($once, $path, $state);
+            if ($deferred && ! $isCachedOnce()) {
                 $state->deferred[$deferred->group()][] = $path;
             }
             $this->registerMergeMetadata($path, $mergeOperations, $state);
@@ -468,8 +453,25 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface, InertiaVe
         }
 
         try {
-            while ($value instanceof Closure) {
-                $value = $value();
+            while ($value instanceof Closure || $value instanceof Prop) {
+                if ($value instanceof Closure) {
+                    $value = $value();
+
+                    continue;
+                }
+
+                $inspectProp($value);
+                $value = $value->value();
+                if ($shouldOmit()) {
+                    $this->registerOnceMetadata($once, $path, $state);
+                    if ($deferred && ! $isCachedOnce()) {
+                        $state->deferred[$deferred->group()][] = $path;
+                    }
+                    $this->registerMergeMetadata($path, $mergeOperations, $state);
+                    $omit = true;
+
+                    return null;
+                }
             }
 
             if (is_array($value)) {
@@ -503,6 +505,7 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface, InertiaVe
             throw new InertiaPropResolutionException($path, $exception);
         }
 
+        $this->registerOnceMetadata($once, $path, $state);
         $this->registerMergeMetadata($path, $mergeOperations, $state);
 
         return $value;
@@ -514,7 +517,6 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface, InertiaVe
             if ($value instanceof AlwaysProp) {
                 return true;
             }
-
             $value = $value->value();
         }
 
@@ -693,11 +695,8 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface, InertiaVe
         $uri   = $this->request->getUri();
         $path  = $uri->getPath();
         $query = $uri->getQuery();
-        if ('' !== $path || '' !== $query) {
-            return ('' === $path ? '/' : $path) . ('' === $query ? '' : '?' . $query);
-        }
 
-        return (string) $uri;
+        return ('' === $path ? '/' : $path) . ('' === $query ? '' : '?' . $query);
     }
 
     private function requestHeader(string $header): string

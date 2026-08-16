@@ -11,7 +11,10 @@ Version 3.x retains the v2 protocol changes and adds these breaking changes:
 1. `InertiaInterface` now exposes `flash()` for Inertia v3 flash data.
 2. Non-rescued application prop resolver throwables are wrapped in `InertiaPropResolutionException`; the original throwable is available through `getPrevious()`.
 3. Package boundary failures implement `InertiaExceptionInterface`, with concrete exceptions for flash, serialization, rendering, configuration, and container failures.
-4. A custom `InertiaInterface` implementation must implement the internal `InertiaFlashStateInterface` if the container registers an `InertiaFlashProviderInterface`.
+4. A custom `InertiaInterface` implementation must implement the public `InertiaFlashStateInterface` if the container registers an `InertiaFlashProviderInterface`.
+5. `InertiaInterface::version()` was removed; configure an `InertiaVersionProviderInterface` instead.
+6. Custom `InertiaFactoryInterface` implementations must accept the new required nullable `?string $version` parameter in `fromRequest()`.
+7. `InertiaInterface::render()` no longer accepts a page URL; the adapter always derives a relative URL from the request URI.
 
 The package supports deferred, merge/deep-merge/prepend, scroll, once, and history metadata APIs. It also supports `Inertia::always()` and applies simultaneous `only` and `except` partial-reload headers in protocol order: `only` narrows the response and `except` removes paths from that result. The v2 changes to initial JSON markup, `optional()` replacing `lazy()`, and partial reload behavior remain in force.
 
@@ -137,9 +140,11 @@ router.reload({ except: ['auth.notifications'] })
 
 If the client sends both `only` and `except`, the adapter first applies `only`, then removes `except`; a path in both lists is excluded. Dot notation works for nested arrays at any depth, including containers returned by closures. Prop keys containing dots are normalized to nested paths before filtering, so use dot paths rather than literal dotted keys.
 
-### 5. Configure early asset-version checks
+### 5. Move asset versioning into a version provider
 
-Implement and register `InertiaVersionProviderInterface` when the application has asset versioning. This lets the middleware reject a stale Inertia `GET` before the downstream handler runs, so application middleware cannot consume flash data, validation errors, or old input before the client performs the full reload.
+`InertiaInterface::version()` was removed in 3.0, together with the internal `InertiaVersionProviderAwareInterface` and the legacy late mismatch check that ran after the handler. The version provider is now the only source of the page version. Applications that previously called `$inertia->version(...)` in a handler must move that logic into an `InertiaVersionProviderInterface` implementation.
+
+Implement and register `InertiaVersionProviderInterface` when the application has asset versioning. The middleware rejects a stale Inertia `GET` before the downstream handler runs, so application middleware cannot consume flash data, validation errors, or old input before the client performs the full reload.
 
 ```php
 use Psr\Http\Message\ServerRequestInterface;
@@ -154,7 +159,16 @@ final class AssetVersionProvider implements InertiaVersionProviderInterface
 }
 ```
 
-Bind the implementation in the PSR-11 container under `InertiaVersionProviderInterface::class`. The provider is optional: without it, the adapter preserves its legacy late version check for applications that set the version in their handler. A non-null provider version is authoritative, so later `version()` calls cannot overwrite it. Returning `null` delegates version selection to the handler and preserves the late check. The early provider path is recommended because it implements the v3 short-circuit contract.
+Bind the implementation in the PSR-11 container under `InertiaVersionProviderInterface::class`. The middleware validates the provider version and passes it to `InertiaFactoryInterface::fromRequest($request, $version)`, so the request-scoped Inertia service is created with the canonical version already applied to the page. The provider must return a non-blank header-safe version; return `null` (or register no provider) only when the application deliberately runs without asset versioning. The same validation applies to direct `Inertia` construction and custom factories. A missing client `X-Inertia-Version` mismatches a configured provider and causes a full reload. Provider failures are wrapped in `InertiaVersionException` with their original throwable in `getPrevious()`.
+
+Custom `InertiaFactoryInterface` implementations must be updated to the new signature and apply the version when creating the service:
+
+```php
+use Psr\Http\Message\ServerRequestInterface;
+use Sirix\InertiaPsr15\Service\InertiaInterface;
+
+public function fromRequest(ServerRequestInterface $request, ?string $version): InertiaInterface;
+```
 
 ### 6. Configure flash storage when you need redirect flash
 
@@ -212,7 +226,7 @@ The adapter calls `pull()` lazily and at most once for a request that renders a 
 
 The provider is optional. When it is absent, the core package does not access a session or other storage. Direct `flash()` values still render; however, a redirect carrying pending flash throws `MissingFlashProviderException` so that data is not silently lost.
 
-If your application supplies its own `InertiaInterface` implementation and also registers a flash provider, it must implement the internal `InertiaFlashStateInterface`. This lets the middleware attach the lazy resolver and inspect pending flash. Otherwise, the middleware fails fast with `UnsupportedInertiaImplementationException` when it creates the request's Inertia service.
+If your application supplies its own `InertiaInterface` implementation and also registers a flash provider, it must implement the public `InertiaFlashStateInterface`. This lets the middleware attach the lazy resolver and inspect pending flash. Otherwise, the middleware fails fast with `UnsupportedInertiaImplementationException` when it creates the request's Inertia service.
 
 ### 7. Update exception handling
 

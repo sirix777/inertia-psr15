@@ -12,9 +12,7 @@ interface InertiaInterface
     /**
      * @param array<string, mixed> $props
      */
-    public function render(string $component, array $props = [], ?string $url = null): ResponseInterface;
-
-    public function version(string $version): void;
+    public function render(string $component, array $props = []): ResponseInterface;
 
     public function share(string $key, mixed $value = null): void;
 
@@ -27,13 +25,12 @@ interface InertiaInterface
      */
     public function flash(array|string $key, mixed $value = null): static;
 
-    public function getVersion(): ?string;
-
     public function encryptHistory(bool $enabled = true): void;
 
     public function clearHistory(bool $enabled = true): void;
 
     public function preserveFragment(bool $enabled = true): void;
 
+    /** String locations accept only 301, 302, 303, 307, or 308. */
     public function location(ResponseInterface|string $destination, int $status = 302): ResponseInterface;
 }

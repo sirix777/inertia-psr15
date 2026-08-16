@@ -161,7 +161,7 @@ class InertiaTest extends TestCase
             ['X-Inertia-Partial-Component', 'component'],
             ['X-Inertia-Partial-Data', 'key2'],
         ]);
-        $json         = '{"component":"component","props":{"errors":{},"key2":"value2"},"url":"callback()","version":null}';
+        $json         = '{"component":"component","props":{"errors":{},"key2":"value2"},"url":"\/","version":null}';
         $jsonResponse = null;
 
         $uri = $this->createMock(UriInterface::class);
@@ -207,7 +207,7 @@ class InertiaTest extends TestCase
     /**
      * @throws JsonException
      */
-    public function testRenderReturnResponseWithRequestedUrl(): void
+    public function testRenderUsesTheRequestUrl(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
         $request->method('hasHeader')->willReturnMap([
@@ -219,6 +219,7 @@ class InertiaTest extends TestCase
         $jsonResponse = null;
 
         $uri = $this->createMock(UriInterface::class);
+        $uri->method('getPath')->willReturn('/test/url');
         $request->method('getUri')->willReturn($uri);
 
         $response        = $this->createMock(ResponseInterface::class);
@@ -245,14 +246,10 @@ class InertiaTest extends TestCase
             $rootViewProvider
         );
 
-        $returnedResponse = $inertia->render(
-            'component',
-            [
-                'key1' => 'value1',
-                'key2' => 'value2',
-            ],
-            '/test/url'
-        );
+        $returnedResponse = $inertia->render('component', [
+            'key1' => 'value1',
+            'key2' => 'value2',
+        ]);
 
         $this->validateResponseInstance($returnedResponse);
         $this->assertNotSame($invalidJson, $jsonResponse);
@@ -270,7 +267,7 @@ class InertiaTest extends TestCase
             ['X-Inertia-Partial-Data', false],
         ]);
         $invalidJson  = '{"component":"component","props":{"key1":"value1","key2":"value2","auth":{"notifications":["New message"],"user":"Jane"}},"url":"callback()","version":null}';
-        $validJson    = '{"component":"component","props":{"errors":{},"key2":"value2","auth":{"user":"Jane"}},"url":"callback()","version":null}';
+        $validJson    = '{"component":"component","props":{"errors":{},"key2":"value2","auth":{"user":"Jane"}},"url":"\/","version":null}';
         $jsonResponse = null;
 
         $uri = $this->createMock(UriInterface::class);
@@ -334,7 +331,7 @@ class InertiaTest extends TestCase
             ['X-Inertia-Partial-Data', 'key1'],
         ]);
         $invalidJson  = '{"component":"component","props":{"key2":"value2"},"url":"callback()","version":null}';
-        $validJson    = '{"component":"component","props":{"errors":{},"key1":"value1"},"url":"callback()","version":null}';
+        $validJson    = '{"component":"component","props":{"errors":{},"key1":"value1"},"url":"\/","version":null}';
         $jsonResponse = null;
 
         $uri = $this->createMock(UriInterface::class);
@@ -424,7 +421,7 @@ class InertiaTest extends TestCase
         ]);
 
         $this->assertSame(
-            '{"component":"component","props":{"errors":{},"auth":{"notifications":["New message"]}},"url":"callback()","version":null}',
+            '{"component":"component","props":{"errors":{},"auth":{"notifications":["New message"]}},"url":"\/","version":null}',
             $jsonResponse
         );
     }
@@ -476,7 +473,7 @@ class InertiaTest extends TestCase
         ]);
 
         $this->assertSame(
-            '{"component":"component","props":{"errors":{}},"url":"callback()","version":null}',
+            '{"component":"component","props":{"errors":{}},"url":"\/","version":null}',
             $jsonResponse
         );
     }
@@ -494,7 +491,7 @@ class InertiaTest extends TestCase
         ]);
 
         $this->assertSame(
-            '{"component":"component","props":{"errors":{},"feature":{"flag":false}},"url":"callback()","version":null}',
+            '{"component":"component","props":{"errors":{},"feature":{"flag":false}},"url":"\/","version":null}',
             $json
         );
     }
@@ -513,7 +510,7 @@ class InertiaTest extends TestCase
         ], 'feature.flag');
 
         $this->assertSame(
-            '{"component":"component","props":{"errors":{}},"url":"callback()","version":null}',
+            '{"component":"component","props":{"errors":{}},"url":"\/","version":null}',
             $json
         );
     }
@@ -532,7 +529,7 @@ class InertiaTest extends TestCase
             ]);
 
             $this->assertSame(
-                '{"component":"component","props":{"errors":{},"auth":{"user":"Jane","role":"admin"}},"url":"callback()","version":null}',
+                '{"component":"component","props":{"errors":{},"auth":{"user":"Jane","role":"admin"}},"url":"\/","version":null}',
                 $json
             );
         }
@@ -559,7 +556,7 @@ class InertiaTest extends TestCase
 
         $this->assertSame(1, $authCalls);
         $this->assertSame(
-            '{"component":"component","props":{"errors":{},"auth":{"user":"Jane","notifications":["New message"]}},"url":"callback()","version":null}',
+            '{"component":"component","props":{"errors":{},"auth":{"user":"Jane","notifications":["New message"]}},"url":"\/","version":null}',
             $json
         );
     }
