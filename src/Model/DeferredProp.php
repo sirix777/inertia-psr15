@@ -12,7 +12,7 @@ final class DeferredProp extends Prop
 {
     public function __construct(mixed $value, private readonly ?string $group = null, private readonly bool $rescue = false)
     {
-        parent::__construct(is_callable($value) ? Closure::fromCallable($value) : $value);
+        parent::__construct(is_callable($value) ? $value(...) : $value);
     }
 
     public function group(): string

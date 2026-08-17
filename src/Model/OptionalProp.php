@@ -10,6 +10,6 @@ final class OptionalProp extends Prop
 {
     public function __construct(callable $callable)
     {
-        parent::__construct(Closure::fromCallable($callable));
+        parent::__construct($callable(...));
     }
 }

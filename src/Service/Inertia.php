@@ -200,6 +200,9 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface
         return $this->pendingFlash;
     }
 
+    /**
+     * @throws InertiaFlashException
+     */
     public function consumeIncomingFlash(): void
     {
         $this->resolvedFlash();
@@ -305,7 +308,9 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface
         ;
     }
 
-    /** @return array<string, mixed> */
+    /** @return array<string, mixed>
+     * @throws InertiaFlashException
+     */
     private function resolvedFlash(): array
     {
         if ($this->flashResolutionFailure instanceof InertiaFlashException) {
