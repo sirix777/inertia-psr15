@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Sirix\InertiaPsr15\Model;
 
-use Closure;
-
 use function is_callable;
 
 final class DeferredProp extends Prop
