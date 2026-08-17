@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Sirix\InertiaPsr15\Service;
 
+use Fig\Http\Message\StatusCodeInterface;
 use Psr\Http\Message\ResponseInterface;
 use Sirix\InertiaPsr15\Model\OnceProp;
 
@@ -21,7 +22,7 @@ interface InertiaInterface
     /**
      * Queue flash data for this response or the next request after a redirect.
      *
-     * @param array<array-key, mixed>|string $key
+     * @param array<string, mixed>|string $key
      */
     public function flash(array|string $key, mixed $value = null): static;
 
@@ -31,6 +32,6 @@ interface InertiaInterface
 
     public function preserveFragment(bool $enabled = true): void;
 
-    /** String locations accept only 301, 302, 303, 307, or 308. */
-    public function location(ResponseInterface|string $destination, int $status = 302): ResponseInterface;
+    /** String locations accept only the redirect status codes allowed by Inertia. */
+    public function location(ResponseInterface|string $destination, int $status = StatusCodeInterface::STATUS_FOUND): ResponseInterface;
 }

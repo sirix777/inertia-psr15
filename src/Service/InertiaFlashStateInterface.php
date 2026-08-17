@@ -16,4 +16,10 @@ interface InertiaFlashStateInterface
 
     /** @return array<string, mixed> */
     public function pendingFlash(): array;
+
+    /** Consume incoming flash without adding it to a Page response. */
+    public function consumeIncomingFlash(): void;
+
+    /** Whether this request's Inertia service has produced a Page response. */
+    public function hasRenderedPage(): bool;
 }

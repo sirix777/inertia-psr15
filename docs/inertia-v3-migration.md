@@ -8,7 +8,7 @@ This package is a server-side adapter. Updating the Inertia JavaScript client, V
 
 Version 3.x retains the v2 protocol changes and adds these breaking changes:
 
-1. `InertiaInterface` now exposes `flash()` for Inertia v3 flash data.
+1. `InertiaInterface` now exposes `flash()` for Inertia v3 flash data. This is a BC break for custom implementations, which must add the method.
 2. Non-rescued application prop resolver throwables are wrapped in `InertiaPropResolutionException`; the original throwable is available through `getPrevious()`.
 3. Package boundary failures implement `InertiaExceptionInterface`, with concrete exceptions for flash, serialization, rendering, configuration, and container failures.
 4. A custom `InertiaInterface` implementation must implement the public `InertiaFlashStateInterface` if the container registers an `InertiaFlashProviderInterface`.
@@ -222,15 +222,15 @@ final class ApplicationFlashProvider implements InertiaFlashProviderInterface
 
 For a framework bridge, order middleware as: session middleware, the framework's native flash middleware, this Inertia middleware, then routing/handler middleware. This ensures the provider sees the request-local session and flash state, while Inertia can persist or preserve flash before the response leaves the application. Use the bridge package's integration guide when it provides a more framework-specific registration order.
 
-The adapter calls `pull()` lazily and at most once for a request that renders a Page. It calls `persist()` only when pending flash must survive a redirect, and calls `preserve()` for Inertia control responses that cause a new visit. Provider failures are reported as `InertiaFlashException`, with the original failure in `getPrevious()`.
+The adapter calls `pull()` lazily and at most once for a request that renders a Page. It also consumes incoming flash for a normal redirect before persisting newly queued flash, so a pull-style provider does not carry old flash into the redirected visit. It calls `preserve()` for Inertia control responses that cause a new visit. Provider failures are reported as `InertiaFlashException`, with the original failure in `getPrevious()`.
 
-The provider is optional. When it is absent, the core package does not access a session or other storage. Direct `flash()` values still render; however, a redirect carrying pending flash throws `MissingFlashProviderException` so that data is not silently lost.
+The provider is optional. When it is absent, the core package does not access a session or other storage. Direct `flash()` values still render; however, a redirect carrying pending flash throws `MissingFlashProviderException` so that data is not silently lost. Pending flash with neither a Page response nor a redirect throws `InvalidInertiaArgumentException` rather than being silently discarded.
 
-If your application supplies its own `InertiaInterface` implementation and also registers a flash provider, it must implement the public `InertiaFlashStateInterface`. This lets the middleware attach the lazy resolver and inspect pending flash. Otherwise, the middleware fails fast with `UnsupportedInertiaImplementationException` when it creates the request's Inertia service.
+If your application supplies its own `InertiaInterface` implementation and also registers a flash provider, it must implement the public `InertiaFlashStateInterface`. This lets the middleware attach the lazy resolver, consume incoming flash for redirects, inspect pending flash, and verify that a Page was rendered. Otherwise, the middleware fails fast with `UnsupportedInertiaImplementationException` when it creates the request's Inertia service.
 
 ### 7. Update exception handling
 
-Catch `InertiaExceptionInterface` to handle package-created boundary failures as a group. It covers validation, configuration, flash-provider, prop-resolution, serialization, rendering, and container exceptions. Catch a concrete type when recovery differs by operation:
+Catch `InertiaExceptionInterface` to handle package-created boundary failures as a group. It covers validation, configuration, flash-provider, prop-resolution, serialization, rendering, and container exceptions. In particular, Twig callers that previously caught `JsonException` around `InertiaExtension::inertia()` must catch `InertiaSerializationException`; callers of the package factories that caught `ContainerResolverException` must catch `InertiaContainerException`. Catch a concrete type when recovery differs by operation:
 
 ```php
 use Sirix\InertiaPsr15\Exception\InertiaExceptionInterface;

@@ -6,6 +6,8 @@ namespace InertiaPsr15Test\Service;
 
 use Closure;
 use Error;
+use Fig\Http\Message\RequestMethodInterface;
+use Fig\Http\Message\StatusCodeInterface;
 use InvalidArgumentException;
 use JsonException;
 use JsonSerializable;
@@ -14,6 +16,7 @@ use Laminas\Diactoros\ServerRequest;
 use Laminas\Diactoros\StreamFactory;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\ResponseInterface;
+use ReflectionMethod;
 use RuntimeException;
 use Sirix\InertiaPsr15\Exception\InertiaFlashException;
 use Sirix\InertiaPsr15\Exception\InertiaPropResolutionException;
@@ -227,7 +230,7 @@ final class InertiaV3Test extends TestCase
             }
         };
         $inertia = new Inertia(
-            new ServerRequest([], [], '/users', 'GET', 'php://memory'),
+            new ServerRequest([], [], '/users', RequestMethodInterface::METHOD_GET, 'php://memory'),
             new ResponseFactory(),
             new StreamFactory(),
             $root
@@ -364,7 +367,7 @@ final class InertiaV3Test extends TestCase
         ]);
 
         try {
-            $inertia->flash([
+            (new ReflectionMethod($inertia, 'flash'))->invoke($inertia, [
                 42 => 'Saved',
             ]);
             self::fail('Flash keys must be strings.');
@@ -444,6 +447,22 @@ final class InertiaV3Test extends TestCase
         self::assertSame(['settings'], $page['deepMergeProps']);
     }
 
+    public function testMergeOperationChainsRejectCombinationsThatWouldDiscardMetadata(): void
+    {
+        foreach ([
+            static fn () => Inertia::merge([])->matchOn('id')->matchOn('uuid'),
+            static fn () => Inertia::deepMerge([])->append('data'),
+            static fn () => Inertia::merge([])->append('data')->deepMerge(),
+        ] as $build) {
+            try {
+                $build();
+                self::fail('Invalid merge operation chains must not silently discard metadata.');
+            } catch (InvalidInertiaArgumentException) {
+                self::addToAssertionCount(1);
+            }
+        }
+    }
+
     public function testNestedMergeAndPrependOperationsReplaceTheRootMergeFallback(): void
     {
         $page = $this->page($this->inertia([
@@ -492,7 +511,7 @@ final class InertiaV3Test extends TestCase
 
     public function testUsesARelativeRootUrlForAnAbsoluteRootRequestUri(): void
     {
-        $request = new ServerRequest([], [], 'https://example.test', 'GET', 'php://memory', [
+        $request = new ServerRequest([], [], 'https://example.test', RequestMethodInterface::METHOD_GET, 'php://memory', [
             'X-Inertia' => 'true',
         ]);
         $root = new class implements RootViewProviderInterface {
@@ -509,7 +528,7 @@ final class InertiaV3Test extends TestCase
 
     public function testRejectsBlankVersionsPassedToTheConstructorAndFactory(): void
     {
-        $request = new ServerRequest([], [], '/users', 'GET', 'php://memory', [
+        $request = new ServerRequest([], [], '/users', RequestMethodInterface::METHOD_GET, 'php://memory', [
             'X-Inertia' => 'true',
         ]);
         $root = new class implements RootViewProviderInterface {
@@ -534,7 +553,7 @@ final class InertiaV3Test extends TestCase
 
     public function testRejectsNonRedirectStatusForStringLocations(): void
     {
-        foreach ([200, 304] as $status) {
+        foreach ([StatusCodeInterface::STATUS_OK, StatusCodeInterface::STATUS_NOT_MODIFIED] as $status) {
             try {
                 $this->inertia([])->location('/dashboard', $status);
                 self::fail('Only redirect status codes are valid for string locations.');
@@ -542,6 +561,12 @@ final class InertiaV3Test extends TestCase
                 self::addToAssertionCount(1);
             }
         }
+    }
+
+    public function testLocationRejectsBackslashesLikeRequestLocationDoes(): void
+    {
+        $this->expectException(InvalidInertiaArgumentException::class);
+        $this->inertia([])->location('/projects\archive');
     }
 
     public function testResolvesExplicitDeferredPropsRescuesFailuresAndSkipsKnownOnceProps(): void
@@ -697,7 +722,7 @@ final class InertiaV3Test extends TestCase
 
     public function testRootViewFailuresUseThePackageRenderingException(): void
     {
-        $request = new ServerRequest([], [], '/users', 'GET', 'php://memory');
+        $request = new ServerRequest([], [], '/users', RequestMethodInterface::METHOD_GET, 'php://memory');
         $root    = new class implements RootViewProviderInterface {
             public function __invoke(Page $page): string
             {
@@ -722,7 +747,7 @@ final class InertiaV3Test extends TestCase
             }
         };
         $inertia = new Inertia(
-            new ServerRequest([], [], '/users', 'GET', 'php://memory'),
+            new ServerRequest([], [], '/users', RequestMethodInterface::METHOD_GET, 'php://memory'),
             new ResponseFactory(),
             new StreamFactory(),
             $root
@@ -749,6 +774,20 @@ final class InertiaV3Test extends TestCase
         ]));
 
         self::assertArrayNotHasKey('users', $page['props']);
+    }
+
+    public function testPartialOnlyRetainsAnEmptySelectedContainer(): void
+    {
+        $page = $this->page($this->inertia([
+            'X-Inertia'                   => 'true',
+            'X-Inertia-Partial-Component' => 'Dashboard',
+            'X-Inertia-Partial-Data'      => 'projects.data',
+        ])->render('Dashboard', [
+            'projects' => Inertia::merge([]),
+        ]));
+
+        self::assertSame([], $page['props']['projects']);
+        self::assertSame(['projects'], $page['mergeProps']);
     }
 
     public function testUnpacksSharedAndPageDottedPropsAndAlwaysIncludesErrors(): void
@@ -1091,7 +1130,7 @@ final class InertiaV3Test extends TestCase
 
     public function testVersionPassedToTheConstructorIsSerializedIntoThePage(): void
     {
-        $request = new ServerRequest([], [], '/users', 'GET', 'php://memory', [
+        $request = new ServerRequest([], [], '/users', RequestMethodInterface::METHOD_GET, 'php://memory', [
             'X-Inertia' => 'true',
         ]);
         $root = new class implements RootViewProviderInterface {
@@ -1109,7 +1148,7 @@ final class InertiaV3Test extends TestCase
 
     public function testFactoryVersionArgumentIsSerializedIntoThePage(): void
     {
-        $request = new ServerRequest([], [], '/users', 'GET', 'php://memory', [
+        $request = new ServerRequest([], [], '/users', RequestMethodInterface::METHOD_GET, 'php://memory', [
             'X-Inertia' => 'true',
         ]);
         $root = new class implements RootViewProviderInterface {
@@ -1129,7 +1168,7 @@ final class InertiaV3Test extends TestCase
     /** @param array<non-empty-string, array<string>|string> $headers */
     private function inertia(array $headers): Inertia
     {
-        $request = new ServerRequest([], [], '/users?filter=active', 'GET', 'php://memory', $headers);
+        $request = new ServerRequest([], [], '/users?filter=active', RequestMethodInterface::METHOD_GET, 'php://memory', $headers);
         $root    = new class implements RootViewProviderInterface {
             public function __invoke(Page $page): string
             {

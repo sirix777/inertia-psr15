@@ -32,6 +32,10 @@ final class MergeProp extends Prop
 
     public function deepMerge(): self
     {
+        if ([] !== $this->operations) {
+            throw new InvalidInertiaArgumentException('Deep merge cannot be combined with append or prepend operations.');
+        }
+
         return $this->withOperations('deep', null, null);
     }
 
@@ -45,6 +49,13 @@ final class MergeProp extends Prop
 
         $prop                               = clone $this;
         $last                               = count($prop->operations) - 1;
+        if ('deep' === $prop->operations[$last]['mode']) {
+            throw new InvalidInertiaArgumentException('Deep merge operations cannot use a match path.');
+        }
+
+        if (null !== $prop->operations[$last]['matchOn']) {
+            throw new InvalidInertiaArgumentException('A merge operation can only have one match path.');
+        }
         $prop->operations[$last]['matchOn'] = $path;
 
         return $prop;
@@ -86,6 +97,12 @@ final class MergeProp extends Prop
      */
     private function withOperations(string $mode, array|string|null $paths, ?string $matchOn): self
     {
+        foreach ($this->operations as $operation) {
+            if ('deep' === $operation['mode']) {
+                throw new InvalidInertiaArgumentException('Deep merge cannot be combined with append or prepend operations.');
+            }
+        }
+
         $paths ??= [''];
         if (is_string($paths)) {
             $paths = [

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Sirix\InertiaPsr15\Middleware;
 
+use Fig\Http\Message\RequestMethodInterface;
+use Fig\Http\Message\StatusCodeInterface;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Server\MiddlewareInterface;
@@ -11,6 +13,7 @@ use Psr\Http\Server\RequestHandlerInterface as Handler;
 use Sirix\InertiaPsr15\Exception\InertiaFlashException;
 use Sirix\InertiaPsr15\Exception\InertiaSerializationException;
 use Sirix\InertiaPsr15\Exception\InertiaVersionException;
+use Sirix\InertiaPsr15\Exception\InvalidInertiaArgumentException;
 use Sirix\InertiaPsr15\Exception\MissingFlashProviderException;
 use Sirix\InertiaPsr15\Exception\UnsupportedInertiaImplementationException;
 use Sirix\InertiaPsr15\Service\InertiaFactoryInterface;
@@ -109,13 +112,24 @@ class InertiaMiddleware implements MiddlewareInterface
             return $response;
         }
 
-        $control = $this->isFlashControlResponse($response);
-        if ($this->isRedirectResponse($response) || $control) {
+        $control  = $this->isFlashControlResponse($response);
+        $redirect = $this->isRedirectResponse($response);
+        if ($redirect && ! $control) {
+            $inertia->consumeIncomingFlash();
+        }
+
+        if ($redirect || $control) {
             $this->persistPendingFlash($request, $inertia->pendingFlash());
         }
 
         if ($control && $this->flashProvider instanceof InertiaFlashProviderInterface) {
             $this->preserveFlash($request);
+        }
+
+        if (! $redirect && ! $control && [] !== $inertia->pendingFlash() && ! $inertia->hasRenderedPage()) {
+            throw new InvalidInertiaArgumentException(
+                'Pending Inertia flash data requires a rendered Page response or a redirect response.'
+            );
         }
 
         return $response;
@@ -172,14 +186,14 @@ class InertiaMiddleware implements MiddlewareInterface
 
     private function isRedirectResponse(Response $response): bool
     {
-        return 300 <= $response->getStatusCode()
-            && 400 > $response->getStatusCode()
+        return StatusCodeInterface::STATUS_MULTIPLE_CHOICES <= $response->getStatusCode()
+            && StatusCodeInterface::STATUS_BAD_REQUEST > $response->getStatusCode()
             && $response->hasHeader('Location');
     }
 
     private function isFlashControlResponse(Response $response): bool
     {
-        return 409 === $response->getStatusCode()
+        return StatusCodeInterface::STATUS_CONFLICT === $response->getStatusCode()
             && ($response->hasHeader('X-Inertia-Location') || $response->hasHeader('X-Inertia-Redirect'));
     }
 
@@ -187,8 +201,8 @@ class InertiaMiddleware implements MiddlewareInterface
     {
         return null !== $currentVersion
             && $request->hasHeader('X-Inertia')
-            && 'GET' === $request->getMethod()
-            && $request->getHeaderLine('X-Inertia-Version') !== $currentVersion;
+            && RequestMethodInterface::METHOD_GET === $request->getMethod()
+            && ($request->getHeader('X-Inertia-Version')[0] ?? '') !== $currentVersion;
     }
 
     private function changeRedirectCode(Request $request, Response $response): Response
@@ -198,22 +212,22 @@ class InertiaMiddleware implements MiddlewareInterface
         }
 
         if (
-            302 === $response->getStatusCode()
-            && in_array($request->getMethod(), ['PUT', 'PATCH', 'DELETE'])
+            StatusCodeInterface::STATUS_FOUND === $response->getStatusCode()
+            && in_array($request->getMethod(), [RequestMethodInterface::METHOD_PUT, RequestMethodInterface::METHOD_PATCH, RequestMethodInterface::METHOD_DELETE])
         ) {
-            $response = $response->withStatus(303);
+            $response = $response->withStatus(StatusCodeInterface::STATUS_SEE_OTHER);
         }
 
         if (
-            300 <= $response->getStatusCode()
-            && 400 > $response->getStatusCode()
+            StatusCodeInterface::STATUS_MULTIPLE_CHOICES <= $response->getStatusCode()
+            && StatusCodeInterface::STATUS_BAD_REQUEST > $response->getStatusCode()
             && $response->hasHeader('Location')
             && 'prefetch' !== $request->getHeaderLine('Purpose')
         ) {
             $location = $response->getHeaderLine('Location');
             if (str_contains($location, '#') && $this->isSafeRedirectLocation($location)) {
                 return $response
-                    ->withStatus(409)
+                    ->withStatus(StatusCodeInterface::STATUS_CONFLICT)
                     ->withHeader('X-Inertia-Redirect', $location)
                     ->withoutHeader('Location')
                 ;
@@ -223,7 +237,7 @@ class InertiaMiddleware implements MiddlewareInterface
         // For External redirects
         // https://inertiajs.com/redirects#external-redirects
         if (
-            409 === $response->getStatusCode()
+            StatusCodeInterface::STATUS_CONFLICT === $response->getStatusCode()
             && $response->hasHeader('X-Inertia-Location')
         ) {
             return $response->withoutHeader('X-Inertia');

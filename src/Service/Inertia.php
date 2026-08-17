@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Sirix\InertiaPsr15\Service;
 
 use Closure;
+use Fig\Http\Message\StatusCodeInterface;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -41,12 +42,27 @@ use function is_string;
 use function json_encode;
 use function preg_match;
 use function preg_replace;
+use function sprintf;
+use function str_contains;
 use function strcasecmp;
 use function strlen;
 use function trim;
 
 class Inertia implements InertiaInterface, InertiaFlashStateInterface
 {
+    private const MAX_SAFE_PATH_LENGTH         = 255;
+    private const MAX_FLASH_KEY_LENGTH         = 8192;
+    private const MAX_REDIRECT_LOCATION_LENGTH = 8192;
+
+    /** @var list<int> */
+    private const VALID_REDIRECT_STATUSES = [
+        StatusCodeInterface::STATUS_MOVED_PERMANENTLY,
+        StatusCodeInterface::STATUS_FOUND,
+        StatusCodeInterface::STATUS_SEE_OTHER,
+        StatusCodeInterface::STATUS_TEMPORARY_REDIRECT,
+        StatusCodeInterface::STATUS_PERMANENT_REDIRECT,
+    ];
+
     private Page $page;
 
     /** @var array<string, mixed> */
@@ -61,6 +77,8 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface
     private bool $flashResolutionAttempted = false;
 
     private ?InertiaFlashException $flashResolutionFailure = null;
+
+    private bool $hasRenderedPage = false;
 
     /** @var list<string> */
     private array $sharedKeys = [];
@@ -113,7 +131,8 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface
         ];
         $this->page = $this->page->replaceProps($props);
         $this->applyMetadata($state);
-        $this->page = $this->page->withFlash($this->resolvedFlash());
+        $this->page            = $this->page->withFlash($this->resolvedFlash());
+        $this->hasRenderedPage = true;
 
         if ($this->request->hasHeader('X-Inertia')) {
             try {
@@ -181,6 +200,16 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface
         return $this->pendingFlash;
     }
 
+    public function consumeIncomingFlash(): void
+    {
+        $this->resolvedFlash();
+    }
+
+    public function hasRenderedPage(): bool
+    {
+        return $this->hasRenderedPage;
+    }
+
     public function encryptHistory(bool $enabled = true): void
     {
         $this->page = $this->page->encryptHistory($enabled);
@@ -239,14 +268,14 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface
         return new OnceProp($value);
     }
 
-    public function location(ResponseInterface|string $destination, int $status = 302): ResponseInterface
+    public function location(ResponseInterface|string $destination, int $status = StatusCodeInterface::STATUS_FOUND): ResponseInterface
     {
         $response = $this->createResponse('', 'text/html; charset=UTF-8');
         if ($this->request->hasHeader('X-Inertia')) {
             $location = $destination instanceof ResponseInterface ? $destination->getHeaderLine('Location') : $destination;
             $this->assertSafeRedirectLocation($location);
 
-            return $response->withStatus(409)->withHeader(
+            return $response->withStatus(StatusCodeInterface::STATUS_CONFLICT)->withHeader(
                 'X-Inertia-Location',
                 $location
             );
@@ -256,8 +285,11 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface
             return $destination;
         }
 
-        if (! in_array($status, [301, 302, 303, 307, 308], true)) {
-            throw new InvalidInertiaArgumentException('Redirect status must be one of 301, 302, 303, 307, or 308.');
+        if (! in_array($status, self::VALID_REDIRECT_STATUSES, true)) {
+            throw new InvalidInertiaArgumentException(sprintf(
+                'Redirect status must be one of %d, %d, %d, %d, or %d.',
+                ...self::VALID_REDIRECT_STATUSES
+            ));
         }
 
         $this->assertSafeRedirectLocation($destination);
@@ -382,7 +414,7 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface
             $path             = $this->appendSafePropPath($basePath, (string) $key);
             $omit             = false;
             $value            = $this->resolveProp($value, $path, $state, $omit, $childOnlyPaths, $childExceptPaths);
-            if ($omit || (null !== $childOnlyPaths && ! is_array($value)) || (null !== $childOnlyPaths && [] === $value)) {
+            if ($omit || (null !== $childOnlyPaths && ! is_array($value))) {
                 unset($props[$key]);
             } else {
                 $props[$key] = $value;
@@ -712,7 +744,7 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface
 
     private function isSafePath(string $path): bool
     {
-        return 255 >= strlen($path)
+        return self::MAX_SAFE_PATH_LENGTH >= strlen($path)
             && 1 === preg_match('/^[^.\x00-\x1F\x7F]+(?:\.[^.\x00-\x1F\x7F]+)*$/', $path);
     }
 
@@ -735,7 +767,7 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface
 
     private function assertSafeFlashKey(mixed $key): string
     {
-        if (! is_string($key) || '' === $key || 8192 < strlen($key) || 1 === preg_match('/[\x00-\x1F\x7F]/', $key)) {
+        if (! is_string($key) || '' === $key || self::MAX_FLASH_KEY_LENGTH < strlen($key) || 1 === preg_match('/[\x00-\x1F\x7F]/', $key)) {
             throw new InvalidInertiaArgumentException('Flash keys must be non-empty control-safe strings.');
         }
 
@@ -759,14 +791,14 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface
 
     private static function assertSafeStaticPath(string $path, string $label): void
     {
-        if (255 < strlen($path) || 1 !== preg_match('/^[^.\x00-\x1F\x7F]+(?:\.[^.\x00-\x1F\x7F]+)*$/', $path)) {
+        if (self::MAX_SAFE_PATH_LENGTH < strlen($path) || 1 !== preg_match('/^[^.\x00-\x1F\x7F]+(?:\.[^.\x00-\x1F\x7F]+)*$/', $path)) {
             throw new InvalidInertiaArgumentException($label . ' must be a non-empty safe dot path.');
         }
     }
 
     private function assertSafeRedirectLocation(string $location): void
     {
-        if ('' === $location || 8192 < strlen($location) || 1 === preg_match('/[\x00-\x1F\x7F]/', $location)) {
+        if ('' === $location || self::MAX_REDIRECT_LOCATION_LENGTH < strlen($location) || str_contains($location, '\\') || 1 === preg_match('/[\x00-\x1F\x7F]/', $location)) {
             throw new InvalidInertiaArgumentException('Redirect location must be a non-empty header-safe URI.');
         }
     }
