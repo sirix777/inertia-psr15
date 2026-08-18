@@ -9,6 +9,8 @@ use Sirix\InertiaPsr15\Model\Page;
 
 class RootViewProviderDecorator implements RootViewProviderInterface
 {
+    public const DEFAULT_ROOT_VIEW = 'app.html.twig';
+
     /** @var Closure(string, array{page: Page}): string */
     private readonly Closure $decorated;
 
@@ -21,11 +23,6 @@ class RootViewProviderDecorator implements RootViewProviderInterface
     }
 
     public function __invoke(Page $page): string
-    {
-        return $this->render($page);
-    }
-
-    public function render(Page $page): string
     {
         $decorated = $this->decorated;
 

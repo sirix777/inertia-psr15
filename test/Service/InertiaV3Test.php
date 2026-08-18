@@ -4,18 +4,32 @@ declare(strict_types=1);
 
 namespace InertiaPsr15Test\Service;
 
+use Closure;
+use Error;
+use Fig\Http\Message\RequestMethodInterface;
+use Fig\Http\Message\StatusCodeInterface;
 use InvalidArgumentException;
 use JsonException;
+use JsonSerializable;
 use Laminas\Diactoros\ResponseFactory;
 use Laminas\Diactoros\ServerRequest;
 use Laminas\Diactoros\StreamFactory;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\ResponseInterface;
+use ReflectionMethod;
 use RuntimeException;
+use Sirix\InertiaPsr15\Exception\InertiaFlashException;
+use Sirix\InertiaPsr15\Exception\InertiaPropResolutionException;
+use Sirix\InertiaPsr15\Exception\InertiaRenderingException;
+use Sirix\InertiaPsr15\Exception\InertiaSerializationException;
 use Sirix\InertiaPsr15\Exception\InvalidInertiaArgumentException;
 use Sirix\InertiaPsr15\Model\Page;
+use Sirix\InertiaPsr15\Model\ProvidesScrollMetadata;
 use Sirix\InertiaPsr15\Service\Inertia;
+use Sirix\InertiaPsr15\Service\InertiaFactory;
 use Sirix\InertiaPsr15\View\RootViewProviderInterface;
+use Throwable;
+use TypeError;
 
 use function array_keys;
 use function json_decode;
@@ -35,7 +49,7 @@ final class InertiaV3Test extends TestCase
         self::assertInstanceOf(InvalidArgumentException::class, $exception);
     }
 
-    public function testUnrescuedPropFailuresPreserveTheOriginalException(): void
+    public function testUnrescuedPropFailuresAreWrappedWithTheirLeafPath(): void
     {
         $original = new RuntimeException('database unavailable');
 
@@ -50,9 +64,320 @@ final class InertiaV3Test extends TestCase
                 ],
             ]);
             self::fail('The prop resolver failure must be rethrown.');
-        } catch (RuntimeException $exception) {
-            self::assertSame($original, $exception);
+        } catch (InertiaPropResolutionException $exception) {
+            self::assertSame($original, $exception->getPrevious());
+            self::assertSame('stats.summary', $exception->path());
         }
+    }
+
+    public function testUnrescuedPropFailuresNormalizeUnsafeKeysBeforeCreatingThePath(): void
+    {
+        $original = new RuntimeException('database unavailable');
+
+        try {
+            $this->inertia([
+                'X-Inertia' => 'true',
+            ])->render('Dashboard', [
+                "prop\r\nforged" => static function() use ($original): never {
+                    throw $original;
+                },
+            ]);
+            self::fail('The prop resolver failure must be rethrown.');
+        } catch (InertiaPropResolutionException $exception) {
+            self::assertSame($original, $exception->getPrevious());
+            self::assertSame('propforged', $exception->path());
+            self::assertDoesNotMatchRegularExpression('/[\x00-\x1F\x7F]/', $exception->getMessage());
+        }
+    }
+
+    public function testUnrescuedPropErrorsAndTypeErrorsAreWrapped(): void
+    {
+        foreach ([new Error('callback error'), new TypeError('callback type error')] as $original) {
+            try {
+                $this->inertia([
+                    'X-Inertia' => 'true',
+                ])->render('Dashboard', [
+                    'stats' => static function() use ($original): never {
+                        throw $original;
+                    },
+                ]);
+                self::fail('The prop resolver failure must be wrapped.');
+            } catch (InertiaPropResolutionException $exception) {
+                self::assertSame($original, $exception->getPrevious());
+                self::assertSame('stats', $exception->path());
+            }
+        }
+    }
+
+    public function testExistingPropResolutionExceptionsAreNotWrappedAgain(): void
+    {
+        $wrapped = new InertiaPropResolutionException('stats.summary', new RuntimeException('database unavailable'));
+
+        try {
+            $this->inertia([
+                'X-Inertia' => 'true',
+            ])->render('Dashboard', [
+                'stats' => [
+                    'summary' => static function() use ($wrapped): never {
+                        throw $wrapped;
+                    },
+                ],
+            ]);
+            self::fail('The existing package exception must be rethrown.');
+        } catch (InertiaPropResolutionException $exception) {
+            self::assertSame($wrapped, $exception);
+        }
+    }
+
+    public function testScrollMetadataClosureFailuresUseThePropResolutionBoundary(): void
+    {
+        $original = new RuntimeException('metadata unavailable');
+
+        try {
+            $this->inertia([
+                'X-Inertia' => 'true',
+            ])->render('Feed', [
+                'feed' => Inertia::scroll([
+                    'data' => [],
+                ], metadata: static function() use ($original): never {
+                    throw $original;
+                }),
+            ]);
+            self::fail('The scroll metadata failure must be wrapped.');
+        } catch (InertiaPropResolutionException $exception) {
+            self::assertSame($original, $exception->getPrevious());
+            self::assertSame('feed', $exception->path());
+        }
+    }
+
+    public function testScrollMetadataProviderFailuresUseThePropResolutionBoundary(): void
+    {
+        $original = new RuntimeException('pagination unavailable');
+        $metadata = new class($original) implements ProvidesScrollMetadata {
+            public function __construct(private readonly RuntimeException $exception) {}
+
+            public function getPageName(): string
+            {
+                throw $this->exception;
+            }
+
+            public function getPreviousPage(): null
+            {
+                return null;
+            }
+
+            public function getNextPage(): null
+            {
+                return null;
+            }
+
+            public function getCurrentPage(): int
+            {
+                return 1;
+            }
+        };
+
+        try {
+            $this->inertia([
+                'X-Inertia' => 'true',
+            ])->render('Feed', [
+                'feed' => Inertia::scroll([
+                    'data' => [],
+                ], metadata: $metadata),
+            ]);
+            self::fail('The scroll metadata provider failure must be wrapped.');
+        } catch (InertiaPropResolutionException $exception) {
+            self::assertSame($original, $exception->getPrevious());
+            self::assertSame('feed', $exception->path());
+        }
+    }
+
+    public function testDirectFlashUsesTheTopLevelPageField(): void
+    {
+        $inertia = $this->inertia([
+            'X-Inertia' => 'true',
+        ]);
+        $inertia->flash('message', 'Saved')->flash([
+            'id'      => 42,
+            'message' => 'Updated',
+        ]);
+
+        $page = $this->page($inertia->render('Dashboard', [
+            'flash' => [
+                'ordinary' => true,
+            ],
+        ]));
+
+        self::assertSame([
+            'message' => 'Updated',
+            'id'      => 42,
+        ], $page['flash']);
+        self::assertSame([
+            'ordinary' => true,
+        ], $page['props']['flash']);
+    }
+
+    public function testDirectFlashIsAvailableToTheHtmlRootView(): void
+    {
+        $root = new class implements RootViewProviderInterface {
+            public ?Page $page = null;
+
+            public function __invoke(Page $page): string
+            {
+                $this->page = $page;
+
+                return '<html></html>';
+            }
+        };
+        $inertia = new Inertia(
+            new ServerRequest([], [], '/users', RequestMethodInterface::METHOD_GET, 'php://memory'),
+            new ResponseFactory(),
+            new StreamFactory(),
+            $root
+        );
+
+        $response = $inertia->flash('message', 'Saved')->render('Users');
+
+        self::assertSame('<html></html>', (string) $response->getBody());
+        self::assertSame([
+            'message' => 'Saved',
+        ], $root->page?->getFlash());
+    }
+
+    public function testFlashResolverIsLazyCachedAndMergedWithDirectFlash(): void
+    {
+        $inertia = $this->inertia([
+            'X-Inertia' => 'true',
+        ]);
+        $calls = 0;
+        $inertia->setFlashResolver(static function() use (&$calls): array {
+            ++$calls;
+
+            return [
+                'message' => 'Incoming',
+                'notice'  => 'Welcome',
+            ];
+        });
+        $inertia->flash('message', 'Current');
+
+        self::assertSame([
+            'message' => 'Current',
+            'notice'  => 'Welcome',
+        ], $this->page($inertia->render('Dashboard'))['flash']);
+
+        $inertia->flash('extra', true);
+        self::assertSame([
+            'message' => 'Current',
+            'notice'  => 'Welcome',
+            'extra'   => true,
+        ], $this->page($inertia->render('Dashboard'))['flash']);
+        self::assertSame(1, $calls);
+    }
+
+    public function testFlashResolverFailuresAreWrappedOnceAndKeepTheirCause(): void
+    {
+        $original = new RuntimeException('flash storage unavailable');
+        $inertia  = $this->inertia([
+            'X-Inertia' => 'true',
+        ]);
+        $inertia->setFlashResolver(static function() use ($original): array {
+            throw $original;
+        });
+
+        try {
+            $inertia->render('Dashboard');
+            self::fail('A flash resolver failure must be rethrown.');
+        } catch (InertiaFlashException $exception) {
+            self::assertSame('pull', $exception->operation());
+            self::assertSame($original, $exception->getPrevious());
+        }
+
+        $wrapped = new InertiaFlashException('pull', $original);
+        $inertia = $this->inertia([
+            'X-Inertia' => 'true',
+        ]);
+        $inertia->setFlashResolver(static function() use ($wrapped): array {
+            throw $wrapped;
+        });
+
+        try {
+            $inertia->render('Dashboard');
+            self::fail('An existing flash exception must be rethrown unchanged.');
+        } catch (InertiaFlashException $exception) {
+            self::assertSame($wrapped, $exception);
+        }
+    }
+
+    public function testFlashResolverFailureIsCachedAcrossRepeatedRenderAttempts(): void
+    {
+        $calls    = 0;
+        $original = new RuntimeException('flash storage unavailable');
+        $inertia  = $this->inertia([
+            'X-Inertia' => 'true',
+        ]);
+        $inertia->setFlashResolver(static function() use (&$calls, $original): array {
+            ++$calls;
+
+            throw $original;
+        });
+
+        $failures = [];
+        foreach ([1, 2] as $_) {
+            try {
+                $inertia->render('Dashboard');
+                self::fail('A flash resolver failure must be rethrown.');
+            } catch (InertiaFlashException $exception) {
+                $failures[] = $exception;
+            }
+        }
+
+        self::assertSame(1, $calls);
+        self::assertSame($failures[0], $failures[1]);
+        self::assertSame($original, $failures[0]->getPrevious());
+    }
+
+    public function testFlashResolverRejectsNumericIncomingFlashKeys(): void
+    {
+        $inertia = $this->inertia([
+            'X-Inertia' => 'true',
+        ]);
+        $inertia->setFlashResolver($this->numericFlashKeyResolver());
+
+        try {
+            $inertia->render('Dashboard');
+            self::fail('Incoming flash must be an object with safe string keys.');
+        } catch (InertiaFlashException $exception) {
+            self::assertSame('pull', $exception->operation());
+            self::assertInstanceOf(InvalidInertiaArgumentException::class, $exception->getPrevious());
+        }
+    }
+
+    public function testFlashRejectsUnsafeKeys(): void
+    {
+        $this->expectException(InvalidInertiaArgumentException::class);
+        $this->inertia([
+            'X-Inertia' => 'true',
+        ])->flash("message\r\nInjected", 'Saved');
+    }
+
+    public function testFlashRejectsNonStringKeysAndTreatsAnEmptyArrayAsANoOp(): void
+    {
+        $inertia = $this->inertia([
+            'X-Inertia' => 'true',
+        ]);
+
+        try {
+            (new ReflectionMethod($inertia, 'flash'))->invoke($inertia, [
+                42 => 'Saved',
+            ]);
+            self::fail('Flash keys must be strings.');
+        } catch (InvalidInertiaArgumentException) {
+            self::addToAssertionCount(1);
+        }
+
+        $page = $this->page($inertia->flash([])->render('Dashboard'));
+
+        self::assertArrayNotHasKey('flash', $page);
     }
 
     public function testSerializesV3MetadataAndNeverInvokesPlainCallableStrings(): void
@@ -103,6 +428,145 @@ final class InertiaV3Test extends TestCase
         self::assertTrue($page['encryptHistory']);
         self::assertTrue($page['clearHistory']);
         self::assertTrue($page['preserveFragment']);
+    }
+
+    public function testMergeUsesTheRootMergeOperationByDefaultAndDeepMergeReplacesIt(): void
+    {
+        $page = $this->page($this->inertia([
+            'X-Inertia' => 'true',
+        ])->render('Dashboard', [
+            'users'    => Inertia::merge([[
+                'id' => 1,
+            ]]),
+            'settings' => Inertia::deepMerge([
+                'theme' => 'dark',
+            ]),
+        ]));
+
+        self::assertSame(['users'], $page['mergeProps']);
+        self::assertSame(['settings'], $page['deepMergeProps']);
+    }
+
+    public function testMergeOperationChainsRejectCombinationsThatWouldDiscardMetadata(): void
+    {
+        foreach ([
+            static fn () => Inertia::merge([])->matchOn('id')->matchOn('uuid'),
+            static fn () => Inertia::deepMerge([])->append('data'),
+            static fn () => Inertia::merge([])->append('data')->deepMerge(),
+        ] as $build) {
+            try {
+                $build();
+                self::fail('Invalid merge operation chains must not silently discard metadata.');
+            } catch (InvalidInertiaArgumentException) {
+                self::addToAssertionCount(1);
+            }
+        }
+    }
+
+    public function testNestedMergeAndPrependOperationsReplaceTheRootMergeFallback(): void
+    {
+        $page = $this->page($this->inertia([
+            'X-Inertia' => 'true',
+        ])->render('Dashboard', [
+            'users'       => Inertia::merge([])->append('data'),
+            'tags'        => Inertia::merge([])->prepend('data'),
+            'latestUsers' => Inertia::merge([])->prepend(),
+        ]));
+
+        self::assertSame(['users.data'], $page['mergeProps']);
+        self::assertSame(['tags.data', 'latestUsers'], $page['prependProps']);
+    }
+
+    public function testMergeOperationChainsPublishOnlyOneRootDirection(): void
+    {
+        $page = $this->page($this->inertia([
+            'X-Inertia' => 'true',
+        ])->render('Dashboard', [
+            'appendThenPrepend' => Inertia::merge([])->append()->prepend(),
+            'prependThenAppend' => Inertia::merge([])->prepend()->append(),
+            'nestedThenPrepend' => Inertia::merge([])->append('data')->prepend(),
+        ]));
+
+        self::assertSame(['prependThenAppend', 'nestedThenPrepend.data'], $page['mergeProps']);
+        self::assertSame(['appendThenPrepend'], $page['prependProps']);
+    }
+
+    public function testResolvesPropWrappersReturnedByClosures(): void
+    {
+        $page = $this->page($this->inertia([
+            'X-Inertia' => 'true',
+        ])->render('Dashboard', [
+            'optional' => static fn () => Inertia::optional(static fn () => 'not loaded'),
+            'merged'   => static fn () => Inertia::merge([[
+                'id' => 1,
+            ]]),
+        ]));
+
+        self::assertArrayNotHasKey('optional', $page['props']);
+        self::assertSame([[
+            'id' => 1,
+        ]], $page['props']['merged']);
+        self::assertSame(['merged'], $page['mergeProps']);
+    }
+
+    public function testUsesARelativeRootUrlForAnAbsoluteRootRequestUri(): void
+    {
+        $request = new ServerRequest([], [], 'https://example.test', RequestMethodInterface::METHOD_GET, 'php://memory', [
+            'X-Inertia' => 'true',
+        ]);
+        $root = new class implements RootViewProviderInterface {
+            public function __invoke(Page $page): string
+            {
+                return '<html></html>';
+            }
+        };
+
+        $page = $this->page((new Inertia($request, new ResponseFactory(), new StreamFactory(), $root))->render('Dashboard'));
+
+        self::assertSame('/', $page['url']);
+    }
+
+    public function testRejectsBlankVersionsPassedToTheConstructorAndFactory(): void
+    {
+        $request = new ServerRequest([], [], '/users', RequestMethodInterface::METHOD_GET, 'php://memory', [
+            'X-Inertia' => 'true',
+        ]);
+        $root = new class implements RootViewProviderInterface {
+            public function __invoke(Page $page): string
+            {
+                return '<html></html>';
+            }
+        };
+
+        foreach ([
+            static fn () => new Inertia($request, new ResponseFactory(), new StreamFactory(), $root, ' '),
+            static fn () => (new InertiaFactory(new ResponseFactory(), new StreamFactory(), $root))->fromRequest($request, ''),
+        ] as $create) {
+            try {
+                $create();
+                self::fail('Blank versions must be rejected at every public construction boundary.');
+            } catch (InvalidInertiaArgumentException) {
+                self::addToAssertionCount(1);
+            }
+        }
+    }
+
+    public function testRejectsNonRedirectStatusForStringLocations(): void
+    {
+        foreach ([StatusCodeInterface::STATUS_OK, StatusCodeInterface::STATUS_NOT_MODIFIED] as $status) {
+            try {
+                $this->inertia([])->location('/dashboard', $status);
+                self::fail('Only redirect status codes are valid for string locations.');
+            } catch (InvalidInertiaArgumentException) {
+                self::addToAssertionCount(1);
+            }
+        }
+    }
+
+    public function testLocationRejectsBackslashesLikeRequestLocationDoes(): void
+    {
+        $this->expectException(InvalidInertiaArgumentException::class);
+        $this->inertia([])->location('/projects\archive');
     }
 
     public function testResolvesExplicitDeferredPropsRescuesFailuresAndSkipsKnownOnceProps(): void
@@ -202,15 +666,99 @@ final class InertiaV3Test extends TestCase
         }
     }
 
-    public function testMalformedUtf8FailsClosedBeforeAnInertiaJsonResponseIsCreated(): void
+    public function testUnserializablePageDataUsesThePackageSerializationException(): void
     {
-        $this->expectException(JsonException::class);
+        $recursive         = [];
+        $recursive['self'] = &$recursive;
 
-        $this->inertia([
+        $inertia = $this->inertia([
             'X-Inertia' => 'true',
-        ])->render('Users', [
-            'invalid' => "\xB1\x31",
         ]);
+        $inertia->flash('recursive', $recursive);
+
+        try {
+            $inertia->render('Users');
+            self::fail('Recursive flash data must not be serialized.');
+        } catch (InertiaSerializationException $exception) {
+            self::assertInstanceOf(JsonException::class, $exception->getPrevious());
+        }
+    }
+
+    public function testJsonSerializableFailuresAreWrappedWithTheirExactCause(): void
+    {
+        foreach ([new RuntimeException('serialization failed'), new Error('serialization error')] as $original) {
+            $value = new class($original) implements JsonSerializable {
+                public function __construct(private readonly Throwable $exception) {}
+
+                public function jsonSerialize(): mixed
+                {
+                    throw $this->exception;
+                }
+            };
+
+            try {
+                $this->inertia([
+                    'X-Inertia' => 'true',
+                ])->render('Users', [
+                    'value' => $value,
+                ]);
+                self::fail('JsonSerializable failures must be wrapped.');
+            } catch (InertiaSerializationException $exception) {
+                self::assertSame($original, $exception->getPrevious());
+            }
+        }
+    }
+
+    public function testInvalidUtf8InFlashIsSubstitutedRatherThanFailingSerialization(): void
+    {
+        $response = $this->inertia([
+            'X-Inertia' => 'true',
+        ])->flash('message', "Invalid \xB1")
+            ->render('Dashboard')
+        ;
+
+        self::assertSame('Invalid �', $this->page($response)['flash']['message']);
+    }
+
+    public function testRootViewFailuresUseThePackageRenderingException(): void
+    {
+        $request = new ServerRequest([], [], '/users', RequestMethodInterface::METHOD_GET, 'php://memory');
+        $root    = new class implements RootViewProviderInterface {
+            public function __invoke(Page $page): string
+            {
+                throw new RuntimeException('template unavailable');
+            }
+        };
+        $inertia = new Inertia($request, new ResponseFactory(), new StreamFactory(), $root);
+
+        $this->expectException(InertiaRenderingException::class);
+        $inertia->render('Users');
+    }
+
+    public function testRootViewPreservesSerializationExceptions(): void
+    {
+        $original = new InertiaSerializationException('Unable to serialize the Inertia page.');
+        $root     = new class($original) implements RootViewProviderInterface {
+            public function __construct(private readonly InertiaSerializationException $exception) {}
+
+            public function __invoke(Page $page): string
+            {
+                throw $this->exception;
+            }
+        };
+        $inertia = new Inertia(
+            new ServerRequest([], [], '/users', RequestMethodInterface::METHOD_GET, 'php://memory'),
+            new ResponseFactory(),
+            new StreamFactory(),
+            $root
+        );
+
+        try {
+            $inertia->render('Users');
+            self::fail('Serialization exceptions must not be wrapped as rendering failures.');
+        } catch (InertiaSerializationException $exception) {
+            self::assertSame($original, $exception);
+        }
     }
 
     public function testInvalidPartialHeaderPathsCannotSelectOptionalProps(): void
@@ -226,6 +774,20 @@ final class InertiaV3Test extends TestCase
         ]));
 
         self::assertArrayNotHasKey('users', $page['props']);
+    }
+
+    public function testPartialOnlyRetainsAnEmptySelectedContainer(): void
+    {
+        $page = $this->page($this->inertia([
+            'X-Inertia'                   => 'true',
+            'X-Inertia-Partial-Component' => 'Dashboard',
+            'X-Inertia-Partial-Data'      => 'projects.data',
+        ])->render('Dashboard', [
+            'projects' => Inertia::merge([]),
+        ]));
+
+        self::assertSame([], $page['props']['projects']);
+        self::assertSame(['projects'], $page['mergeProps']);
     }
 
     public function testUnpacksSharedAndPageDottedPropsAndAlwaysIncludesErrors(): void
@@ -566,10 +1128,47 @@ final class InertiaV3Test extends TestCase
         self::assertSame('plans', $page['onceProps']['plans']['prop']);
     }
 
+    public function testVersionPassedToTheConstructorIsSerializedIntoThePage(): void
+    {
+        $request = new ServerRequest([], [], '/users', RequestMethodInterface::METHOD_GET, 'php://memory', [
+            'X-Inertia' => 'true',
+        ]);
+        $root = new class implements RootViewProviderInterface {
+            public function __invoke(Page $page): string
+            {
+                return '<html></html>';
+            }
+        };
+        $inertia = new Inertia($request, new ResponseFactory(), new StreamFactory(), $root, 'v42');
+
+        $page = $this->page($inertia->render('Users'));
+
+        self::assertSame('v42', $page['version']);
+    }
+
+    public function testFactoryVersionArgumentIsSerializedIntoThePage(): void
+    {
+        $request = new ServerRequest([], [], '/users', RequestMethodInterface::METHOD_GET, 'php://memory', [
+            'X-Inertia' => 'true',
+        ]);
+        $root = new class implements RootViewProviderInterface {
+            public function __invoke(Page $page): string
+            {
+                return '<html></html>';
+            }
+        };
+        $factory = new InertiaFactory(new ResponseFactory(), new StreamFactory(), $root);
+        $inertia = $factory->fromRequest($request, 'v42');
+
+        $page = $this->page($inertia->render('Users'));
+
+        self::assertSame('v42', $page['version']);
+    }
+
     /** @param array<non-empty-string, array<string>|string> $headers */
     private function inertia(array $headers): Inertia
     {
-        $request = new ServerRequest([], [], '/users?filter=active', 'GET', 'php://memory', $headers);
+        $request = new ServerRequest([], [], '/users?filter=active', RequestMethodInterface::METHOD_GET, 'php://memory', $headers);
         $root    = new class implements RootViewProviderInterface {
             public function __invoke(Page $page): string
             {
@@ -578,6 +1177,11 @@ final class InertiaV3Test extends TestCase
         };
 
         return new Inertia($request, new ResponseFactory(), new StreamFactory(), $root);
+    }
+
+    private function numericFlashKeyResolver(): Closure
+    {
+        return static fn (): array => ['notice'];
     }
 
     /** @return array<string, mixed> */

@@ -10,6 +10,8 @@ use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerInterface;
 use Sirix\ContainerResolver\Exception\InvalidConfigValueException;
 use Sirix\ContainerResolver\Exception\InvalidContainerServiceException;
+use Sirix\InertiaPsr15\Exception\InertiaConfigurationException;
+use Sirix\InertiaPsr15\Exception\InertiaContainerException;
 use Sirix\InertiaPsr15\Factory\RootViewProviderFactory;
 use Sirix\InertiaPsr15\Model\Page;
 
@@ -90,11 +92,15 @@ class RootViewProviderFactoryTest extends TestCase
             ['config', 'invalid'],
         ]);
 
-        $this->expectException(InvalidContainerServiceException::class);
-        $this->expectExceptionMessage('config');
-        $this->expectExceptionMessage(RootViewProviderFactory::class);
-
-        (new RootViewProviderFactory())($container);
+        try {
+            (new RootViewProviderFactory())($container);
+            self::fail('Expected the factory to reject a non-array configuration service.');
+        } catch (InertiaContainerException $exception) {
+            $previous = $exception->getPrevious();
+            self::assertInstanceOf(InvalidContainerServiceException::class, $previous);
+            self::assertStringContainsString('config', $previous->getMessage());
+            self::assertStringContainsString(RootViewProviderFactory::class, $previous->getMessage());
+        }
     }
 
     #[DataProvider('invalidRootViewValues')]
@@ -114,11 +120,15 @@ class RootViewProviderFactoryTest extends TestCase
             ],
         ]);
 
-        $this->expectException(InvalidConfigValueException::class);
-        $this->expectExceptionMessage('inertia_psr15.root_view');
-        $this->expectExceptionMessage(RootViewProviderFactory::class);
-
-        (new RootViewProviderFactory())($container);
+        try {
+            (new RootViewProviderFactory())($container);
+            self::fail('Expected the factory to reject an invalid root-view configuration.');
+        } catch (InertiaConfigurationException $exception) {
+            $previous = $exception->getPrevious();
+            self::assertInstanceOf(InvalidConfigValueException::class, $previous);
+            self::assertStringContainsString('inertia_psr15.root_view', $previous->getMessage());
+            self::assertStringContainsString(RootViewProviderFactory::class, $previous->getMessage());
+        }
     }
 
     /**

@@ -5,10 +5,15 @@ declare(strict_types=1);
 namespace Sirix\InertiaPsr15\Service;
 
 use Closure;
+use Fig\Http\Message\StatusCodeInterface;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\StreamFactoryInterface;
+use Sirix\InertiaPsr15\Exception\InertiaFlashException;
+use Sirix\InertiaPsr15\Exception\InertiaPropResolutionException;
+use Sirix\InertiaPsr15\Exception\InertiaRenderingException;
+use Sirix\InertiaPsr15\Exception\InertiaSerializationException;
 use Sirix\InertiaPsr15\Exception\InvalidInertiaArgumentException;
 use Sirix\InertiaPsr15\Model\AlwaysProp;
 use Sirix\InertiaPsr15\Model\DeferredProp;
@@ -19,6 +24,7 @@ use Sirix\InertiaPsr15\Model\Page;
 use Sirix\InertiaPsr15\Model\Prop;
 use Sirix\InertiaPsr15\Model\ProvidesScrollMetadata;
 use Sirix\InertiaPsr15\Model\ScrollProp;
+use Sirix\InertiaPsr15\Service\Internal\InertiaVersion;
 use Sirix\InertiaPsr15\Service\Internal\PropResolutionState;
 use Sirix\InertiaPsr15\View\RootViewProviderInterface;
 use stdClass;
@@ -26,25 +32,53 @@ use Throwable;
 
 use function array_diff;
 use function array_key_exists;
-use function array_keys;
 use function array_unique;
 use function array_values;
-use function error_log;
 use function explode;
-use function getenv;
 use function implode;
+use function in_array;
 use function is_array;
+use function is_string;
 use function json_encode;
 use function preg_match;
+use function preg_replace;
+use function sprintf;
+use function str_contains;
 use function strcasecmp;
 use function strlen;
 use function trim;
 
-class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
+class Inertia implements InertiaInterface, InertiaFlashStateInterface
 {
+    private const MAX_SAFE_PATH_LENGTH         = 255;
+    private const MAX_FLASH_KEY_LENGTH         = 8192;
+    private const MAX_REDIRECT_LOCATION_LENGTH = 8192;
+
+    /** @var list<int> */
+    private const VALID_REDIRECT_STATUSES = [
+        StatusCodeInterface::STATUS_MOVED_PERMANENTLY,
+        StatusCodeInterface::STATUS_FOUND,
+        StatusCodeInterface::STATUS_SEE_OTHER,
+        StatusCodeInterface::STATUS_TEMPORARY_REDIRECT,
+        StatusCodeInterface::STATUS_PERMANENT_REDIRECT,
+    ];
+
     private Page $page;
 
-    private ?string $providerVersion = null;
+    /** @var array<string, mixed> */
+    private array $pendingFlash = [];
+
+    /** @var null|Closure(): array<string, mixed> */
+    private ?Closure $flashResolver = null;
+
+    /** @var null|array<string, mixed> */
+    private ?array $incomingFlash = null;
+
+    private bool $flashResolutionAttempted = false;
+
+    private ?InertiaFlashException $flashResolutionFailure = null;
+
+    private bool $hasRenderedPage = false;
 
     /** @var list<string> */
     private array $sharedKeys = [];
@@ -53,18 +87,23 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
         private readonly ServerRequestInterface $request,
         private readonly ResponseFactoryInterface $responseFactory,
         private readonly StreamFactoryInterface $streamFactory,
-        private readonly RootViewProviderInterface $rootViewProvider
+        private readonly RootViewProviderInterface $rootViewProvider,
+        ?string $version = null
     ) {
         $this->page = Page::create();
+        if (null !== $version) {
+            InertiaVersion::assertValid($version);
+            $this->page = $this->page->withVersion($version);
+        }
     }
 
     /** @param array<string, mixed> $props */
-    public function render(string $component, array $props = [], ?string $url = null): ResponseInterface
+    public function render(string $component, array $props = []): ResponseInterface
     {
         $props      = $this->mergeArrays($this->page->getProps(), $this->unpackProps($props));
         $this->page = $this->page
             ->withComponent($component)
-            ->withUrl($url ?? $this->requestUrl())
+            ->withUrl($this->requestUrl())
             ->withSharedProps(array_values(array_unique($this->sharedKeys)))
         ;
 
@@ -90,32 +129,36 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
             'errors' => new stdClass(),
             ...$props,
         ];
-        if ($partial['isPartial'] && '1' === getenv('INERTIA_DEBUG_PARTIAL_PROPS')) {
-            error_log('[FIX:partial-props] Replacing filtered page props: ' . implode(',', array_keys($props)));
-        }
         $this->page = $this->page->replaceProps($props);
         $this->applyMetadata($state);
+        $this->page            = $this->page->withFlash($this->resolvedFlash());
+        $this->hasRenderedPage = true;
 
         if ($this->request->hasHeader('X-Inertia')) {
-            return $this->createResponse(json_encode($this->page, JSON_THROW_ON_ERROR), 'application/json');
+            try {
+                $json = json_encode($this->page, JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
+            } catch (Throwable $exception) {
+                if ($exception instanceof InertiaSerializationException) {
+                    throw $exception;
+                }
+
+                throw new InertiaSerializationException('Unable to serialize the Inertia page.', $exception->getCode(), previous: $exception);
+            }
+
+            return $this->createResponse($json, 'application/json');
         }
 
-        return $this->createResponse(($this->rootViewProvider)($this->page), 'text/html; charset=UTF-8');
-    }
+        try {
+            $markup = ($this->rootViewProvider)($this->page);
+        } catch (Throwable $exception) {
+            if ($exception instanceof InertiaRenderingException || $exception instanceof InertiaSerializationException) {
+                throw $exception;
+            }
 
-    public function version(string $version): void
-    {
-        if (null !== $this->providerVersion) {
-            return;
+            throw new InertiaRenderingException('Unable to render the Inertia root view.', $exception->getCode(), previous: $exception);
         }
 
-        $this->page = $this->page->withVersion($version);
-    }
-
-    public function setVersionFromProvider(string $version): void
-    {
-        $this->providerVersion = $version;
-        $this->page            = $this->page->withVersion($version);
+        return $this->createResponse($markup, 'text/html; charset=UTF-8');
     }
 
     public function share(string $key, mixed $value = null): void
@@ -134,9 +177,40 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
         return $prop;
     }
 
-    public function getVersion(): ?string
+    public function flash(array|string $key, mixed $value = null): static
     {
-        return $this->page->getVersion();
+        $flash = is_array($key) ? $key : [
+            $key => $value,
+        ];
+        $this->pendingFlash = [...$this->pendingFlash, ...$this->normalizeFlash($flash)];
+
+        return $this;
+    }
+
+    public function setFlashResolver(Closure $resolver): void
+    {
+        $this->flashResolver             = $resolver;
+        $this->incomingFlash             = null;
+        $this->flashResolutionAttempted  = false;
+        $this->flashResolutionFailure    = null;
+    }
+
+    public function pendingFlash(): array
+    {
+        return $this->pendingFlash;
+    }
+
+    /**
+     * @throws InertiaFlashException
+     */
+    public function consumeIncomingFlash(): void
+    {
+        $this->resolvedFlash();
+    }
+
+    public function hasRenderedPage(): bool
+    {
+        return $this->hasRenderedPage;
     }
 
     public function encryptHistory(bool $enabled = true): void
@@ -197,14 +271,14 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
         return new OnceProp($value);
     }
 
-    public function location(ResponseInterface|string $destination, int $status = 302): ResponseInterface
+    public function location(ResponseInterface|string $destination, int $status = StatusCodeInterface::STATUS_FOUND): ResponseInterface
     {
         $response = $this->createResponse('', 'text/html; charset=UTF-8');
         if ($this->request->hasHeader('X-Inertia')) {
             $location = $destination instanceof ResponseInterface ? $destination->getHeaderLine('Location') : $destination;
             $this->assertSafeRedirectLocation($location);
 
-            return $response->withStatus(409)->withHeader(
+            return $response->withStatus(StatusCodeInterface::STATUS_CONFLICT)->withHeader(
                 'X-Inertia-Location',
                 $location
             );
@@ -212,6 +286,13 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
 
         if ($destination instanceof ResponseInterface) {
             return $destination;
+        }
+
+        if (! in_array($status, self::VALID_REDIRECT_STATUSES, true)) {
+            throw new InvalidInertiaArgumentException(sprintf(
+                'Redirect status must be one of %d, %d, %d, %d, or %d.',
+                ...self::VALID_REDIRECT_STATUSES
+            ));
         }
 
         $this->assertSafeRedirectLocation($destination);
@@ -225,6 +306,32 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
             ->withBody($this->streamFactory->createStream($data))
             ->withHeader('Content-Type', $contentType)
         ;
+    }
+
+    /** @return array<string, mixed>
+     * @throws InertiaFlashException
+     */
+    private function resolvedFlash(): array
+    {
+        if ($this->flashResolutionFailure instanceof InertiaFlashException) {
+            throw $this->flashResolutionFailure;
+        }
+
+        if (! $this->flashResolutionAttempted && $this->flashResolver instanceof Closure) {
+            $this->flashResolutionAttempted = true;
+
+            try {
+                $this->incomingFlash = $this->normalizeFlash(($this->flashResolver)());
+            } catch (Throwable $exception) {
+                $this->flashResolutionFailure = $exception instanceof InertiaFlashException
+                    ? $exception
+                    : new InertiaFlashException('pull', $exception);
+
+                throw $this->flashResolutionFailure;
+            }
+        }
+
+        return [...($this->incomingFlash ?? []), ...$this->pendingFlash];
     }
 
     /** @return array{isPartial: bool, hasOnly: bool, onlyPaths: list<string>, exceptPaths: list<string>} */
@@ -290,8 +397,6 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
      * @param list<string>         $exceptPaths
      *
      * @return array<string, mixed>
-     *
-     * @throws Throwable
      */
     private function resolveProps(
         array $props,
@@ -311,10 +416,10 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
                 continue;
             }
 
-            $path             = '' === $basePath ? (string) $key : $basePath . '.' . $key;
+            $path             = $this->appendSafePropPath($basePath, (string) $key);
             $omit             = false;
             $value            = $this->resolveProp($value, $path, $state, $omit, $childOnlyPaths, $childExceptPaths);
-            if ($omit || (null !== $childOnlyPaths && ! is_array($value)) || (null !== $childOnlyPaths && [] === $value)) {
+            if ($omit || (null !== $childOnlyPaths && ! is_array($value))) {
                 unset($props[$key]);
             } else {
                 $props[$key] = $value;
@@ -344,36 +449,38 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
         $mergeOperations  = [];
         $scroll           = null;
 
-        while ($value instanceof Prop) {
-            if ($value instanceof AlwaysProp) {
+        $inspectProp = function(Prop $prop) use (&$always, &$optional, &$deferred, &$once, &$mergeOperations, &$scroll): void {
+            if ($prop instanceof AlwaysProp) {
                 $always = true;
-            } elseif ($value instanceof OptionalProp) {
+            } elseif ($prop instanceof OptionalProp) {
                 $optional = true;
-            } elseif ($value instanceof DeferredProp) {
-                $deferred = $value;
-            } elseif ($value instanceof OnceProp) {
-                $once = $value;
-            } elseif ($value instanceof MergeProp) {
-                $mergeOperations = [...$mergeOperations, ...$value->operations()];
-            } elseif ($value instanceof ScrollProp) {
-                $scroll = $value;
+            } elseif ($prop instanceof DeferredProp) {
+                $deferred = $prop;
+            } elseif ($prop instanceof OnceProp) {
+                $once = $prop;
+            } elseif ($prop instanceof MergeProp) {
+                $mergeOperations = [...$mergeOperations, ...$prop->operations()];
+            } elseif ($prop instanceof ScrollProp) {
+                $scroll = $prop;
             }
+        };
+
+        while ($value instanceof Prop) {
+            $inspectProp($value);
             $value = $value->value();
         }
 
-        $this->registerOnceMetadata($once, $path, $state);
+        $isCachedOnce = function() use (&$once, $path, $state): bool {
+            return $once && ! $once->isFresh() && ! $state->explicitlyRequested($path) && $state->exceptOnce($once->key() ?? $path);
+        };
+        $shouldOmit = function() use ($isCachedOnce, &$always, &$optional, &$deferred, $state): bool {
+            return $isCachedOnce()
+                || (! $always && ($optional || $deferred) && ! $state->explicitOnly && ! $state->isPartial);
+        };
 
-        if ($once) {
-            $onceKey = $once->key() ?? $path;
-            if (! $once->isFresh() && ! $state->explicitlyRequested($path) && $state->exceptOnce($onceKey)) {
-                $omit = true;
-
-                return null;
-            }
-        }
-
-        if (! $always && ($optional || $deferred) && ! $state->explicitOnly && ! $state->isPartial) {
-            if ($deferred) {
+        if ($shouldOmit()) {
+            $this->registerOnceMetadata($once, $path, $state);
+            if ($deferred && ! $isCachedOnce()) {
                 $state->deferred[$deferred->group()][] = $path;
             }
             $this->registerMergeMetadata($path, $mergeOperations, $state);
@@ -383,12 +490,42 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
         }
 
         try {
-            while ($value instanceof Closure) {
-                $value = $value();
+            while ($value instanceof Closure || $value instanceof Prop) {
+                if ($value instanceof Closure) {
+                    $value = $value();
+
+                    continue;
+                }
+
+                $inspectProp($value);
+                $value = $value->value();
+                if ($shouldOmit()) {
+                    $this->registerOnceMetadata($once, $path, $state);
+                    if ($deferred && ! $isCachedOnce()) {
+                        $state->deferred[$deferred->group()][] = $path;
+                    }
+                    $this->registerMergeMetadata($path, $mergeOperations, $state);
+                    $omit = true;
+
+                    return null;
+                }
             }
 
             if (is_array($value)) {
                 $value = $this->resolveProps($value, $path, $state, $onlyPaths, $exceptPaths);
+            }
+
+            if ($scroll) {
+                $state->scroll[$path] = $scroll->metadata($value);
+                if ($state->isReset($path)) {
+                    $state->scroll[$path]['reset'] = true;
+                }
+                $intent            = $state->scrollMergeIntent;
+                $mergeOperations[] = [
+                    'mode'    => 'prepend' === $intent ? 'prepend' : 'append',
+                    'path'    => $scroll->wrapper(),
+                    'matchOn' => null,
+                ];
             }
         } catch (Throwable $exception) {
             if ($deferred && $deferred->rescue()) {
@@ -398,22 +535,14 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
                 return null;
             }
 
-            throw $exception;
-        }
-
-        if ($scroll) {
-            $state->scroll[$path] = $scroll->metadata($value);
-            if ($state->isReset($path)) {
-                $state->scroll[$path]['reset'] = true;
+            if ($exception instanceof InertiaPropResolutionException) {
+                throw $exception;
             }
-            $intent               = $state->scrollMergeIntent;
-            $mergeOperations[]    = [
-                'mode'    => 'prepend' === $intent ? 'prepend' : 'append',
-                'path'    => $scroll->wrapper(),
-                'matchOn' => null,
-            ];
+
+            throw new InertiaPropResolutionException($path, $exception);
         }
 
+        $this->registerOnceMetadata($once, $path, $state);
         $this->registerMergeMetadata($path, $mergeOperations, $state);
 
         return $value;
@@ -425,7 +554,6 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
             if ($value instanceof AlwaysProp) {
                 return true;
             }
-
             $value = $value->value();
         }
 
@@ -604,11 +732,8 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
         $uri   = $this->request->getUri();
         $path  = $uri->getPath();
         $query = $uri->getQuery();
-        if ('' !== $path || '' !== $query) {
-            return ('' === $path ? '/' : $path) . ('' === $query ? '' : '?' . $query);
-        }
 
-        return (string) $uri;
+        return ('' === $path ? '/' : $path) . ('' === $query ? '' : '?' . $query);
     }
 
     private function requestHeader(string $header): string
@@ -624,8 +749,18 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
 
     private function isSafePath(string $path): bool
     {
-        return 255 >= strlen($path)
+        return self::MAX_SAFE_PATH_LENGTH >= strlen($path)
             && 1 === preg_match('/^[^.\x00-\x1F\x7F]+(?:\.[^.\x00-\x1F\x7F]+)*$/', $path);
+    }
+
+    private function appendSafePropPath(string $basePath, string $segment): string
+    {
+        $segment = preg_replace('/[\x00-\x1F\x7F]|\xC2[\x80-\x9F]/', '', $segment) ?? '';
+        if ('' === $segment) {
+            $segment = '_';
+        }
+
+        return '' === $basePath ? $segment : $basePath . '.' . $segment;
     }
 
     private function assertSafePropPath(string $path, string $label): void
@@ -635,16 +770,40 @@ class Inertia implements InertiaInterface, InertiaVersionProviderAwareInterface
         }
     }
 
+    private function assertSafeFlashKey(mixed $key): string
+    {
+        if (! is_string($key) || '' === $key || self::MAX_FLASH_KEY_LENGTH < strlen($key) || 1 === preg_match('/[\x00-\x1F\x7F]/', $key)) {
+            throw new InvalidInertiaArgumentException('Flash keys must be non-empty control-safe strings.');
+        }
+
+        return $key;
+    }
+
+    /**
+     * @param array<array-key, mixed> $flash
+     *
+     * @return array<string, mixed>
+     */
+    private function normalizeFlash(array $flash): array
+    {
+        $normalized = [];
+        foreach ($flash as $key => $value) {
+            $normalized[$this->assertSafeFlashKey($key)] = $value;
+        }
+
+        return $normalized;
+    }
+
     private static function assertSafeStaticPath(string $path, string $label): void
     {
-        if (255 < strlen($path) || 1 !== preg_match('/^[^.\x00-\x1F\x7F]+(?:\.[^.\x00-\x1F\x7F]+)*$/', $path)) {
+        if (self::MAX_SAFE_PATH_LENGTH < strlen($path) || 1 !== preg_match('/^[^.\x00-\x1F\x7F]+(?:\.[^.\x00-\x1F\x7F]+)*$/', $path)) {
             throw new InvalidInertiaArgumentException($label . ' must be a non-empty safe dot path.');
         }
     }
 
     private function assertSafeRedirectLocation(string $location): void
     {
-        if ('' === $location || 8192 < strlen($location) || 1 === preg_match('/[\x00-\x1F\x7F]/', $location)) {
+        if ('' === $location || self::MAX_REDIRECT_LOCATION_LENGTH < strlen($location) || str_contains($location, '\\') || 1 === preg_match('/[\x00-\x1F\x7F]/', $location)) {
             throw new InvalidInertiaArgumentException('Redirect location must be a non-empty header-safe URI.');
         }
     }

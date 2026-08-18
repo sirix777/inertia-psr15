@@ -7,26 +7,30 @@ namespace Sirix\InertiaPsr15\Factory;
 use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\ContainerInterface;
 use Sirix\ContainerResolver\ContainerResolver;
-use Sirix\ContainerResolver\Exception\InvalidContainerServiceException;
-use Sirix\ContainerResolver\Exception\MissingContainerServiceException;
+use Sirix\ContainerResolver\Exception\ContainerResolverException;
+use Sirix\InertiaPsr15\Exception\InertiaContainerException;
 use Sirix\InertiaPsr15\Middleware\InertiaMiddleware;
 use Sirix\InertiaPsr15\Service\InertiaFactoryInterface;
+use Sirix\InertiaPsr15\Service\InertiaFlashProviderInterface;
 use Sirix\InertiaPsr15\Service\InertiaVersionProviderInterface;
 
 class InertiaMiddlewareFactory
 {
     /**
-     * @throws ContainerExceptionInterface      when the underlying container fails to resolve the service
-     * @throws InvalidContainerServiceException when the resolved service has an unexpected type
-     * @throws MissingContainerServiceException when the service is not registered
+     * @throws InertiaContainerException when a required service cannot be resolved
      */
     public function __invoke(ContainerInterface $container): InertiaMiddleware
     {
-        $resolver = ContainerResolver::forFactory($container, self::class);
+        try {
+            $resolver = ContainerResolver::forFactory($container, self::class);
 
-        return new InertiaMiddleware(
-            $resolver->get(InertiaFactoryInterface::class),
-            versionProvider: $resolver->optional(InertiaVersionProviderInterface::class),
-        );
+            return new InertiaMiddleware(
+                $resolver->get(InertiaFactoryInterface::class),
+                versionProvider: $resolver->optional(InertiaVersionProviderInterface::class),
+                flashProvider: $resolver->optional(InertiaFlashProviderInterface::class),
+            );
+        } catch (ContainerExceptionInterface|ContainerResolverException $exception) {
+            throw new InertiaContainerException('Unable to resolve Inertia middleware services.', $exception->getCode(), previous: $exception);
+        }
     }
 }

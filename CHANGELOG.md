@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-08-18
+
+### Added
+- Optional, storage-neutral `InertiaFlashProviderInterface` integration for Inertia v3 top-level `page.flash` data.
+- `InertiaFactoryInterface::fromRequest()` accepts a required nullable `?string $version` second parameter; the factory creates the request-scoped Inertia service with the canonical provider version already applied to the page.
+- `InertiaInterface::flash()` for direct response flash and redirect-persisted flash. This is a BC break for custom `InertiaInterface` implementations.
+- `InertiaExceptionInterface` and package-specific configuration, flash, version-provider, prop-resolution, serialization, rendering, and container exception types.
+- Direct `psr/http-factory` production dependency for the PSR-17 interfaces used by the core service.
+
+### Changed
+- Flash is emitted as top-level `page.flash`; it is independent from an ordinary `props.flash` value and omitted when empty.
+- Registering an `InertiaFlashProviderInterface` now requires a custom `InertiaInterface` implementation to support the public `InertiaFlashStateInterface`; unsupported implementations fail fast when the middleware creates the request's Inertia service.
+- Custom `InertiaFlashStateInterface` implementations must report Page rendering and consume incoming flash for normal redirects.
+- Flash providers are optional. Without one, the adapter does not access session/storage; direct flash still renders, while redirecting pending flash throws `MissingFlashProviderException`.
+- Pending flash on a non-Page, non-redirect response now throws `InvalidInertiaArgumentException` instead of being discarded. A normal redirect consumes incoming flash before it persists newly queued flash.
+- Non-rescued application prop resolver failures are wrapped in `InertiaPropResolutionException`. The original throwable is available through `getPrevious()`.
+- Provider, serialization, rendering, and container boundary failures now use package-specific exceptions and preserve their original throwable through `getPrevious()`.
+- `InertiaExtension::inertia()` now throws `InertiaSerializationException` rather than `JsonException`; container factories now throw `InertiaContainerException` rather than `ContainerResolverException`.
+- `InertiaVersionProviderInterface` is now the only source of the page version. The middleware resolves and validates the provider version before creating the Inertia service and passes it through `InertiaFactoryInterface::fromRequest()`; handlers can no longer set or override the version.
+- A version provider returning `null` now means the application does not use asset versioning: the handler runs, the page carries `version: null`, and no mismatch check is performed.
+- A missing client `X-Inertia-Version` now mismatches a configured version provider and triggers the required full reload. Providers must return a non-empty version or `null` to disable versioning.
+- `Inertia::merge()` now registers root merge metadata as a fallback only when no append/prepend path is configured; `deepMerge()` takes precedence over merge-path metadata.
+- Page URLs are derived exclusively from the request URI and are always relative.
+- `InertiaFlashStateInterface` is now a public extension contract for custom Inertia implementations.
+
+### Removed
+- `InertiaInterface::version()` and `getVersion()`; register an `InertiaVersionProviderInterface` instead.
+- `InertiaVersionProviderAwareInterface` and `Inertia::setVersionFromProvider()`; the provider-version lock is unnecessary now that the version is fixed at service creation.
+- The legacy late version mismatch check that ran after the handler when no provider version was available.
+- The third `$url` argument of `InertiaInterface::render()`; use the request URI as the single page-URL source.
+- Unused `MissingInertiaConfigException`, `Page::withProps()`, `RootViewProviderDecorator::render()`, partial-props debug output, and unavailable Composer scripts.
+
 ## [2.1.1] - 2026-08-15
 
 ### Fixed
