@@ -44,7 +44,7 @@ class InertiaMiddlewareTest extends TestCase
     {
         $request = $this->createMock(ServerRequestInterface::class);
         $request->method('hasHeader')->with('X-Inertia')->willReturn(false);
-        $inertia = $this->createMock(InertiaInterface::class);
+        $inertia = $this->createStub(InertiaInterface::class);
         $request->method('withAttribute')->with(InertiaMiddleware::INERTIA_ATTRIBUTE, $inertia)->willReturn($request);
 
         $factory = $this->createMock(InertiaFactoryInterface::class);
@@ -63,7 +63,7 @@ class InertiaMiddlewareTest extends TestCase
     public function testDoesntChangeHandlerResponseWhenVersioningIsDisabled(): void
     {
         $factory = $this->createMock(InertiaFactoryInterface::class);
-        $inertia = $this->createMock(InertiaInterface::class);
+        $inertia = $this->createStub(InertiaInterface::class);
 
         $request = $this->createMock(ServerRequestInterface::class);
         $request->method('withAttribute')->with(InertiaMiddleware::INERTIA_ATTRIBUTE, $this->identicalTo($inertia))->willReturn($request);
@@ -73,7 +73,7 @@ class InertiaMiddlewareTest extends TestCase
 
         $factory->method('fromRequest')->with($this->identicalTo($request), null)->willReturn($inertia);
 
-        $response = $this->createMock(ResponseInterface::class);
+        $response = $this->createStub(ResponseInterface::class);
         $response->method('getStatusCode')->willReturn(StatusCodeInterface::STATUS_ACCEPTED);
         $response->method('withAddedHeader')->willReturn($response);
 
@@ -251,7 +251,7 @@ class InertiaMiddlewareTest extends TestCase
         $request = new ServerRequest([], [], '/projects', RequestMethodInterface::METHOD_GET, 'php://memory');
         $factory = $this->createMock(InertiaFactoryInterface::class);
         $factory->expects($this->never())->method('fromRequest');
-        $provider = $this->createMock(InertiaVersionProviderInterface::class);
+        $provider = $this->createStub(InertiaVersionProviderInterface::class);
         $provider->method('currentVersion')->willReturn('');
         $handler = $this->createMock(RequestHandlerInterface::class);
         $handler->expects($this->never())->method('handle');
@@ -266,7 +266,7 @@ class InertiaMiddlewareTest extends TestCase
         $request = new ServerRequest([], [], '/projects', RequestMethodInterface::METHOD_GET, 'php://memory');
         $factory = $this->createMock(InertiaFactoryInterface::class);
         $factory->expects($this->never())->method('fromRequest');
-        $provider = $this->createMock(InertiaVersionProviderInterface::class);
+        $provider = $this->createStub(InertiaVersionProviderInterface::class);
         $provider->method('currentVersion')->willReturn('   ');
         $handler = $this->createMock(RequestHandlerInterface::class);
         $handler->expects($this->never())->method('handle');
@@ -282,7 +282,7 @@ class InertiaMiddlewareTest extends TestCase
         $factory = $this->createMock(InertiaFactoryInterface::class);
         $factory->expects($this->never())->method('fromRequest');
         $cause    = new RuntimeException('manifest unavailable');
-        $provider = $this->createMock(InertiaVersionProviderInterface::class);
+        $provider = $this->createStub(InertiaVersionProviderInterface::class);
         $provider->method('currentVersion')->willThrowException($cause);
         $handler = $this->createMock(RequestHandlerInterface::class);
         $handler->expects($this->never())->method('handle');
@@ -342,13 +342,13 @@ class InertiaMiddlewareTest extends TestCase
             'X-Inertia-Version' => 'stale',
             'Purpose'           => 'prefetch',
         ]);
-        $inertia = $this->createMock(InertiaInterface::class);
+        $inertia = $this->createStub(InertiaInterface::class);
         $inertia->method('location')->willReturn(
             (new Response())->withStatus(StatusCodeInterface::STATUS_CONFLICT)->withHeader('X-Inertia-Location', '/projects')
         );
         $factory = $this->createMock(InertiaFactoryInterface::class);
         $factory->method('fromRequest')->with($request, 'current')->willReturn($inertia);
-        $provider = $this->createMock(InertiaVersionProviderInterface::class);
+        $provider = $this->createStub(InertiaVersionProviderInterface::class);
         $provider->method('currentVersion')->willReturn('current');
         $handler = $this->createMock(RequestHandlerInterface::class);
         $handler->expects($this->never())->method('handle');
@@ -365,10 +365,10 @@ class InertiaMiddlewareTest extends TestCase
             'X-Inertia'         => 'true',
             'X-Inertia-Version' => 'stale',
         ]);
-        $inertia = $this->createMock(InertiaInterface::class);
+        $inertia = $this->createStub(InertiaInterface::class);
         $factory = $this->createMock(InertiaFactoryInterface::class);
         $factory->expects($this->once())->method('fromRequest')->with($request, 'current')->willReturn($inertia);
-        $provider = $this->createMock(InertiaVersionProviderInterface::class);
+        $provider = $this->createStub(InertiaVersionProviderInterface::class);
         $provider->method('currentVersion')->willReturn('current');
         $handler = $this->createMock(RequestHandlerInterface::class);
         $handler->expects($this->once())->method('handle')->willReturn(new Response());
@@ -384,7 +384,7 @@ class InertiaMiddlewareTest extends TestCase
         $request = new ServerRequest([], [], '/projects', RequestMethodInterface::METHOD_GET, 'php://memory');
         $factory = $this->createMock(InertiaFactoryInterface::class);
         $factory->expects($this->never())->method('fromRequest');
-        $provider = $this->createMock(InertiaVersionProviderInterface::class);
+        $provider = $this->createStub(InertiaVersionProviderInterface::class);
         $provider->method('currentVersion')->willReturn("current\r\nX-Evil: true");
         $handler = $this->createMock(RequestHandlerInterface::class);
         $handler->expects($this->never())->method('handle');
@@ -400,7 +400,7 @@ class InertiaMiddlewareTest extends TestCase
             (new Response())->withStatus(StatusCodeInterface::STATUS_CONFLICT)
         );
 
-        $uri = $this->createMock(UriInterface::class);
+        $uri = $this->createStub(UriInterface::class);
         $uri->method('getPath')->willReturn('//attacker.example/path');
         $uri->method('getQuery')->willReturn('next=1');
 
@@ -413,7 +413,7 @@ class InertiaMiddlewareTest extends TestCase
 
         $factory = $this->createMock(InertiaFactoryInterface::class);
         $factory->method('fromRequest')->with($request, 'current')->willReturn($inertia);
-        $provider = $this->createMock(InertiaVersionProviderInterface::class);
+        $provider = $this->createStub(InertiaVersionProviderInterface::class);
         $provider->method('currentVersion')->willReturn('current');
 
         $handler = $this->createMock(RequestHandlerInterface::class);
@@ -433,7 +433,7 @@ class InertiaMiddlewareTest extends TestCase
             (new Response())->withStatus(StatusCodeInterface::STATUS_CONFLICT)
         );
 
-        $uri = $this->createMock(UriInterface::class);
+        $uri = $this->createStub(UriInterface::class);
         $uri->method('getPath')->willReturn('/\attacker.example/path');
         $uri->method('getQuery')->willReturn('');
 
@@ -446,7 +446,7 @@ class InertiaMiddlewareTest extends TestCase
 
         $factory = $this->createMock(InertiaFactoryInterface::class);
         $factory->method('fromRequest')->with($request, 'current')->willReturn($inertia);
-        $provider = $this->createMock(InertiaVersionProviderInterface::class);
+        $provider = $this->createStub(InertiaVersionProviderInterface::class);
         $provider->method('currentVersion')->willReturn('current');
 
         $handler = $this->createMock(RequestHandlerInterface::class);
@@ -462,7 +462,7 @@ class InertiaMiddlewareTest extends TestCase
     public function testItChangesResponseCodeTo303WhenRedirectHappensForPutPatchDelete(): void
     {
         $factory = $this->createMock(InertiaFactoryInterface::class);
-        $inertia = $this->createMock(InertiaInterface::class);
+        $inertia = $this->createStub(InertiaInterface::class);
         $request = $this->createMock(ServerRequestInterface::class);
         $request->method('withAttribute')->with(InertiaMiddleware::INERTIA_ATTRIBUTE, $this->identicalTo($inertia))->willReturn($request);
         $request->method('hasHeader')->with('X-Inertia')->willReturn(true);
@@ -486,7 +486,7 @@ class InertiaMiddlewareTest extends TestCase
     public function testItRemovesInertiaHeaderForExternalRedirects(): void
     {
         $factory = $this->createMock(InertiaFactoryInterface::class);
-        $inertia = $this->createMock(InertiaInterface::class);
+        $inertia = $this->createStub(InertiaInterface::class);
         $request = $this->createMock(ServerRequestInterface::class);
         $request->method('withAttribute')->with(InertiaMiddleware::INERTIA_ATTRIBUTE, $this->identicalTo($inertia))->willReturn($request);
         $request->method('hasHeader')->with('X-Inertia')->willReturn(true);
@@ -510,8 +510,8 @@ class InertiaMiddlewareTest extends TestCase
 
     public function testAddsOneVaryTokenToEveryResponseIncluding204AndRedirects(): void
     {
-        $inertia = $this->createMock(InertiaInterface::class);
-        $factory = $this->createMock(InertiaFactoryInterface::class);
+        $inertia = $this->createStub(InertiaInterface::class);
+        $factory = $this->createStub(InertiaFactoryInterface::class);
         $factory->method('fromRequest')->willReturn($inertia);
         $middleware = new InertiaMiddleware($factory);
 
@@ -536,8 +536,8 @@ class InertiaMiddlewareTest extends TestCase
 
     public function testConvertsNormalInertiaRedirectWithFragmentExceptPrefetch(): void
     {
-        $inertia = $this->createMock(InertiaInterface::class);
-        $factory = $this->createMock(InertiaFactoryInterface::class);
+        $inertia = $this->createStub(InertiaInterface::class);
+        $factory = $this->createStub(InertiaFactoryInterface::class);
         $factory->method('fromRequest')->willReturn($inertia);
         $middleware = new InertiaMiddleware($factory);
 
@@ -566,8 +566,8 @@ class InertiaMiddlewareTest extends TestCase
 
     public function testKeepsOrdinaryInertiaRedirectsAsRedirects(): void
     {
-        $inertia = $this->createMock(InertiaInterface::class);
-        $factory = $this->createMock(InertiaFactoryInterface::class);
+        $inertia = $this->createStub(InertiaInterface::class);
+        $factory = $this->createStub(InertiaFactoryInterface::class);
         $factory->method('fromRequest')->willReturn($inertia);
         $middleware = new InertiaMiddleware($factory);
 
@@ -603,7 +603,7 @@ class InertiaMiddlewareTest extends TestCase
                 return '<html></html>';
             }
         });
-        $provider = $this->createMock(InertiaVersionProviderInterface::class);
+        $provider = $this->createStub(InertiaVersionProviderInterface::class);
         $provider->method('currentVersion')->willReturn('current');
         $middleware = new InertiaMiddleware($factory, versionProvider: $provider);
 
@@ -794,7 +794,7 @@ class InertiaMiddlewareTest extends TestCase
                 return '<html></html>';
             }
         });
-        $version = $this->createMock(InertiaVersionProviderInterface::class);
+        $version = $this->createStub(InertiaVersionProviderInterface::class);
         $version->method('currentVersion')->willReturn('current');
         $handler = $this->createMock(RequestHandlerInterface::class);
         $handler->expects($this->never())->method('handle');
@@ -1121,10 +1121,10 @@ class InertiaMiddlewareTest extends TestCase
     public function testFlashProviderFailsFastForAnInertiaImplementationWithoutFlashState(): void
     {
         $request = new ServerRequest();
-        $inertia = $this->createMock(InertiaInterface::class);
+        $inertia = $this->createStub(InertiaInterface::class);
         $factory = $this->createMock(InertiaFactoryInterface::class);
         $factory->expects($this->once())->method('fromRequest')->with($request, null)->willReturn($inertia);
-        $provider = $this->createMock(InertiaFlashProviderInterface::class);
+        $provider = $this->createStub(InertiaFlashProviderInterface::class);
         $handler  = $this->createMock(RequestHandlerInterface::class);
         $handler->expects($this->never())->method('handle');
 

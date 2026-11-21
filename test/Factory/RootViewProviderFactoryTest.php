@@ -29,7 +29,7 @@ class RootViewProviderFactoryTest extends TestCase
             ->willReturn('<html></html>')
         ;
 
-        $container = $this->createMock(ContainerInterface::class);
+        $container = $this->createStub(ContainerInterface::class);
         $container->method('has')->willReturnMap([
             [TemplateRendererInterface::class, true],
             ['config', true],
@@ -52,7 +52,7 @@ class RootViewProviderFactoryTest extends TestCase
     public function testUsesTheDefaultRootViewWhenConfigurationIsMissing(): void
     {
         $renderer  = $this->createMock(TemplateRendererInterface::class);
-        $renderer->expects(self::once())->method('render')->with('app.html.twig', self::isType('array'))->willReturn('<html></html>');
+        $renderer->expects(self::once())->method('render')->with('app.html.twig', self::isArray())->willReturn('<html></html>');
 
         $container = $this->createMock(ContainerInterface::class);
         $container->method('has')->willReturnMap([
@@ -67,9 +67,9 @@ class RootViewProviderFactoryTest extends TestCase
     public function testUsesTheDefaultRootViewWhenTheRootViewConfigurationIsMissing(): void
     {
         $renderer  = $this->createMock(TemplateRendererInterface::class);
-        $renderer->expects(self::once())->method('render')->with('app.html.twig', self::isType('array'))->willReturn('<html></html>');
+        $renderer->expects(self::once())->method('render')->with('app.html.twig', self::isArray())->willReturn('<html></html>');
 
-        $container = $this->createMock(ContainerInterface::class);
+        $container = $this->createStub(ContainerInterface::class);
         $container->method('has')->willReturn(true);
         $container->method('get')->willReturnMap([
             [TemplateRendererInterface::class, $renderer],
@@ -84,8 +84,8 @@ class RootViewProviderFactoryTest extends TestCase
 
     public function testRejectsAConfigurationServiceThatIsNotAnArray(): void
     {
-        $renderer  = $this->createMock(TemplateRendererInterface::class);
-        $container = $this->createMock(ContainerInterface::class);
+        $renderer  = $this->createStub(TemplateRendererInterface::class);
+        $container = $this->createStub(ContainerInterface::class);
         $container->method('has')->willReturn(true);
         $container->method('get')->willReturnMap([
             [TemplateRendererInterface::class, $renderer],
@@ -106,8 +106,8 @@ class RootViewProviderFactoryTest extends TestCase
     #[DataProvider('invalidRootViewValues')]
     public function testRejectsAnInvalidRootViewConfiguration(mixed $rootView): void
     {
-        $renderer  = $this->createMock(TemplateRendererInterface::class);
-        $container = $this->createMock(ContainerInterface::class);
+        $renderer  = $this->createStub(TemplateRendererInterface::class);
+        $container = $this->createStub(ContainerInterface::class);
         $container->method('has')->willReturn(true);
         $container->method('get')->willReturnMap([
             [TemplateRendererInterface::class, $renderer],

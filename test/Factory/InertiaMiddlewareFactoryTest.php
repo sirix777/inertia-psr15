@@ -20,7 +20,7 @@ class InertiaMiddlewareFactoryTest extends TestCase
 {
     public function testCreatesMiddlewareFromTheInertiaFactoryService(): void
     {
-        $inertiaFactory = $this->createMock(InertiaFactoryInterface::class);
+        $inertiaFactory = $this->createStub(InertiaFactoryInterface::class);
         $container      = $this->createMock(ContainerInterface::class);
         $container->method('has')->willReturnMap([
             [InertiaFactoryInterface::class, true],
@@ -34,9 +34,9 @@ class InertiaMiddlewareFactoryTest extends TestCase
 
     public function testCreatesMiddlewareWithTheOptionalVersionProvider(): void
     {
-        $inertiaFactory  = $this->createMock(InertiaFactoryInterface::class);
-        $versionProvider = $this->createMock(InertiaVersionProviderInterface::class);
-        $container       = $this->createMock(ContainerInterface::class);
+        $inertiaFactory  = $this->createStub(InertiaFactoryInterface::class);
+        $versionProvider = $this->createStub(InertiaVersionProviderInterface::class);
+        $container       = $this->createStub(ContainerInterface::class);
         $container->method('has')->willReturnMap([
             [InertiaFactoryInterface::class, true],
             [InertiaVersionProviderInterface::class, true],
@@ -52,9 +52,9 @@ class InertiaMiddlewareFactoryTest extends TestCase
 
     public function testCreatesMiddlewareWithTheOptionalFlashProvider(): void
     {
-        $inertiaFactory = $this->createMock(InertiaFactoryInterface::class);
-        $flashProvider  = $this->createMock(InertiaFlashProviderInterface::class);
-        $container      = $this->createMock(ContainerInterface::class);
+        $inertiaFactory = $this->createStub(InertiaFactoryInterface::class);
+        $flashProvider  = $this->createStub(InertiaFlashProviderInterface::class);
+        $container      = $this->createStub(ContainerInterface::class);
         $container->method('has')->willReturnMap([
             [InertiaFactoryInterface::class, true],
             [InertiaVersionProviderInterface::class, false],
@@ -70,8 +70,8 @@ class InertiaMiddlewareFactoryTest extends TestCase
 
     public function testFailsWhenTheOptionalVersionProviderHasTheWrongType(): void
     {
-        $inertiaFactory = $this->createMock(InertiaFactoryInterface::class);
-        $container      = $this->createMock(ContainerInterface::class);
+        $inertiaFactory = $this->createStub(InertiaFactoryInterface::class);
+        $container      = $this->createStub(ContainerInterface::class);
         $container->method('has')->willReturnMap([
             [InertiaFactoryInterface::class, true],
             [InertiaVersionProviderInterface::class, true],
@@ -94,8 +94,8 @@ class InertiaMiddlewareFactoryTest extends TestCase
 
     public function testFailsWhenTheOptionalFlashProviderHasTheWrongType(): void
     {
-        $inertiaFactory = $this->createMock(InertiaFactoryInterface::class);
-        $container      = $this->createMock(ContainerInterface::class);
+        $inertiaFactory = $this->createStub(InertiaFactoryInterface::class);
+        $container      = $this->createStub(ContainerInterface::class);
         $container->method('has')->willReturnMap([
             [InertiaFactoryInterface::class, true],
             [InertiaVersionProviderInterface::class, false],

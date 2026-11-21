@@ -22,10 +22,10 @@ class InertiaFactoryFactoryTest extends TestCase
 {
     public function testCreatesAnInertiaFactoryFromRequiredServices(): void
     {
-        $responseFactory   = $this->createMock(ResponseFactoryInterface::class);
-        $streamFactory     = $this->createMock(StreamFactoryInterface::class);
-        $rootViewProvider  = $this->createMock(RootViewProviderInterface::class);
-        $container         = $this->createMock(ContainerInterface::class);
+        $responseFactory   = $this->createStub(ResponseFactoryInterface::class);
+        $streamFactory     = $this->createStub(StreamFactoryInterface::class);
+        $rootViewProvider  = $this->createStub(RootViewProviderInterface::class);
+        $container         = $this->createStub(ContainerInterface::class);
         $container->method('has')->willReturn(true);
         $container->method('get')->willReturnMap([
             [ResponseFactoryInterface::class, $responseFactory],
@@ -38,7 +38,7 @@ class InertiaFactoryFactoryTest extends TestCase
 
     public function testFailsWithContextWhenARequiredServiceIsMissing(): void
     {
-        $container = $this->createMock(ContainerInterface::class);
+        $container = $this->createStub(ContainerInterface::class);
         $container->method('has')->willReturn(false);
 
         try {
@@ -53,7 +53,7 @@ class InertiaFactoryFactoryTest extends TestCase
 
     public function testFailsWithContextWhenARequiredServiceHasTheWrongType(): void
     {
-        $container = $this->createMock(ContainerInterface::class);
+        $container = $this->createStub(ContainerInterface::class);
         $container->method('has')->willReturn(true);
         $container->method('get')->willReturn(new stdClass());
 
@@ -71,7 +71,7 @@ class InertiaFactoryFactoryTest extends TestCase
     public function testPropagatesContainerResolutionFailures(): void
     {
         $exception = new class('Resolution failed') extends RuntimeException implements ContainerExceptionInterface {};
-        $container = $this->createMock(ContainerInterface::class);
+        $container = $this->createStub(ContainerInterface::class);
         $container->method('has')->willReturn(true);
         $container->method('get')->willThrowException($exception);
 
