@@ -2,177 +2,62 @@
 
 [![Latest Stable Version](http://poser.pugx.org/sirix/inertia-psr15/v)](https://packagist.org/packages/sirix/inertia-psr15) [![Total Downloads](http://poser.pugx.org/sirix/inertia-psr15/downloads)](https://packagist.org/packages/sirix/inertia-psr15) [![Latest Unstable Version](http://poser.pugx.org/sirix/inertia-psr15/v/unstable)](https://packagist.org/packages/sirix/inertia-psr15) [![License](http://poser.pugx.org/sirix/inertia-psr15/license)](https://packagist.org/packages/sirix/inertia-psr15) [![PHP Version Require](http://poser.pugx.org/sirix/inertia-psr15/require/php)](https://packagist.org/packages/sirix/inertia-psr15)
 
-This is a maintained fork of https://github.com/cherifGsoul/inertia-psr15. It preserves the original goal while updating PHP versions, tooling, and namespace/package details for this fork. See “Fork notes” below for differences.
+PSR-15 server-side adapter for [Inertia.js](https://inertiajs.com/). It works with [Mezzio](https://mezzio.dev/), [Slim](https://www.slimframework.com/) or any framework built on PSR-7 and PSR-15, and targets Inertia v3 clients.
 
-Before using this library, it’s important to know [what is Inertia.js](https://inertiajs.com/#top), [what is it for](https://inertiajs.com/who-is-it-for) and [how it works](https://inertiajs.com/how-it-works), on the [official Inertia.js website](https://inertiajs.com/).
+New to Inertia? Read [what it is](https://inertiajs.com/#top), [who it is for](https://inertiajs.com/who-is-it-for) and [how it works](https://inertiajs.com/how-it-works) first.
 
-PHP PSR-15 [InertiaJS](https://inertiajs.com/) server-side adapter, it can be used with [Mezzio](https://mezzio.dev/), [Slim](https://www.slimframework.com/) or any framework that implements PSR-15 interfaces.
+The adapter is a PSR-15 middleware that detects Inertia requests and prepares the response that the Inertia front-end components render.
 
-The adapter is a PSR-15 middleware to detect InertiaJS requests and prepare and send Response to be read and rendered 
-by InertiaJS front-end components. After installation and configuration, usage can be as simple as: 
+## Requirements
 
-```php
+- PHP `~8.3` to `~8.6`
+- A PSR-11 container, PSR-17 factories, and an Inertia v3 client-side adapter ([client-side setup](https://inertiajs.com/docs/v3/installation/client-side-setup))
 
-// In some RequestHandlerInterface class
-
-$inertia = $request->getAttribute(InertiaMiddleware::INERTIA_ATTRIBUTE);
-return $inertia->render('MyFrontEndComponent', [
-    'someProp' => 'someProp Prop Value',
-    'ohterProp' => 'ohterProp Prop Value'
-]);
-```
-
-
-
-## Fork notes
-
-- Package name: sirix/inertia-psr15
-- PHP versions: ~8.2 to ~8.5 supported
-- Namespace: Sirix\\InertiaPsr15\\
-- Tooling added: PHP-CS-Fixer, PHPStan, Rector configs and GitHub Actions.
-- This README has been adjusted to reflect the fork; code usage remains the same with updated namespaces.
-
-## Usage:
-
-A [small application](https://github.com/sirix777/mezzio-inertia-svelte-demo) was made to demonstrate how this adapter can be used in Mezzio application.
-
-The adapter is designed to work with [Mezzio](https://mezzio.dev/) with little effort, in the following we assume that 
-a Mezzio application was generated using [Mezzio Skeleton](https://github.com/mezzio/mezzio-skeleton) and Twig
-was selected as the template engine:
-
-### Installation:
-
-1- Install the adapter:
+## Installation
 
 ```shell
 composer require sirix/inertia-psr15
 ```
 
-### Container requirements
-
-The built-in factories resolve container services strictly through PSR-11. The following services must be registered with values implementing their declared interfaces: `ResponseFactoryInterface`, `StreamFactoryInterface`, `RootViewProviderInterface`, `TemplateRendererInterface`, and `InertiaFactoryInterface`. `InertiaVersionProviderInterface` is optional; register it to enable early asset-version mismatch handling before the application handler runs.
-
-The `config` service is optional. When present, it must be an array; `inertia_psr15.root_view` is an optional non-empty string and defaults to `app.html.twig`. Missing services, wrong service types, and invalid configuration fail with an exception that identifies the factory and required value.
-
-### Exceptions
-
-Version 3.0 introduces `Sirix\InertiaPsr15\Exception\InertiaExceptionInterface`, the marker interface implemented by package boundary exceptions. Catch it when an application needs to handle adapter failures as a group; concrete exceptions retain the original throwable in `getPrevious()` where the package wraps a provider, prop resolver, renderer, serializer, or container failure. In particular, non-rescued prop resolver failures are now wrapped in `InertiaPropResolutionException` rather than being rethrown unchanged.
-
-2- Add the inertia middleware to the middlewares pipeline:
+Pipe the middleware before routing:
 
 ```php
-<?php
-//my-mezzio-app/config/pipeline.php
-
-// ...
-// - $app->pipe('/files', $filesMiddleware);
 $app->pipe(\Sirix\InertiaPsr15\Middleware\InertiaMiddleware::class);
-
-// Register the routing middleware in the middleware pipeline.
-// This middleware registers the Mezzio\Router\RouteResult request attribute.
 $app->pipe(RouteMiddleware::class);
-
-// ...
 ```
 
-3- Please refer to the [Inertia v3 client-side setup](https://inertiajs.com/docs/v3/installation/client-side-setup) to install a client-side adapter.
+A complete Mezzio + Twig + Vite walkthrough, including the root template, is in [docs/mezzio-twig-setup.md](docs/mezzio-twig-setup.md). A [demo application](https://github.com/sirix777/mezzio-inertia-svelte-demo) is also available.
 
-4- Using Vite is recommended to build the front-end application, however, to render the built JS/CSS
-assets in a Twig template, the following extension can be used:
+## Usage
 
-```shell
-composer require sirix/twig-vite-extension
-```
-
->> a factory might be needed to configure the Vite extension 
-
-5- Configure the template to use Vite extension and the Inertia Twig extension shipped with the adapter
-by updating `config/autoload/template.global.php` and `vite.global.php` like the following:
+Fetch the request-scoped Inertia service in a handler and render a front-end component:
 
 ```php
-<?php
-
-// template.global.php
-
 declare(strict_types=1);
 
-use Sirix\InertiaPsr15\Twig\InertiaExtension;
-use Sirix\TwigViteExtension\Twig\ViteExtension;
+namespace App\Handler;
 
-return [
-    'templates' => [
-        'paths' => [
-            'error'    => [dirname(__DIR__, 2) . '/templates/error'],
-            '__main__' => [dirname(__DIR__, 2) . '/templates'],
-        ],
-    ],
-    'twig'      => [
-        'extensions' => [
-            ViteExtension::class,
-            InertiaExtension::class,
-        ],
-    ],
-];
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Server\RequestHandlerInterface;
+use Sirix\InertiaPsr15\Middleware\InertiaMiddleware;
+use Sirix\InertiaPsr15\Service\InertiaInterface;
+
+class HomePageHandler implements RequestHandlerInterface
+{
+    public function handle(ServerRequestInterface $request): ResponseInterface
+    {
+        /** @var InertiaInterface $inertia */
+        $inertia = $request->getAttribute(InertiaMiddleware::INERTIA_ATTRIBUTE);
+
+        return $inertia->render('Home', [
+            'greeting' => 'Hello Inertia PSR-15',
+        ]);
+    }
+}
 ```
 
-```php
-<?php
-
-// vite.global.php
-
-declare(strict_types=1);
-
-return [
-    'vite' => [
-        'options' => [
-            'is_dev_mode'      => true,
-            'vite_build_dir'   => 'public/build',
-            'vite_public_base' => 'build',
-            'dev_server'       => 'http://localhost:5173',
-        ],
-    ],
-];
-```
-
-6- The adapter needs just one backend template to render the application, and by default it will look for 
-`templates/app.html.twig` if a default template is not configured, the app template can be like the following:
-
-The template name can be changed through application configuration:
-
-```php
-return [
-    'inertia_psr15' => [
-        'root_view' => 'inertia/app.html.twig',
-    ],
-];
-```
-
-```html
-<!DOCTYPE html>
-<html lang="en" class="dark">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}Mezzio with Inertia.js{% endblock %}</title>
-    {{ vite_entry_link_tags('resources/js/app.ts') }}
-</head>
-<body class="font-sans antialiased">
-{% block body %}
-{{ inertia(page) }}
-{% endblock %}
-
-{{ vite_entry_script_tags('resources/js/app.ts') }}
-</body>
-</html>
-```
->> The template uses Vite extension (vite_entry_link_tags) to render the assets and Inertia extension 
-> `inertia(page)` to mount the front-end application.
-
-## Inertia v3
-
-Version 3.x targets Inertia v3 clients. The Twig extension renders the initial page object in the v3 `<script data-page="app" type="application/json">` format and provides a separate `<div id="app"></div>` mount point.
-
-For the complete 3.x migration guide, see [docs/inertia-v3-migration.md](docs/inertia-v3-migration.md).
+### Props
 
 Use `Inertia::optional()` for props that should only be included when explicitly requested in a partial reload:
 
@@ -193,6 +78,8 @@ $inertia->render('Users/Index', [
 ]);
 ```
 
+Deferred, merge, scroll, once and history props are supported as well; see the [capability matrix](docs/inertia-v3-capabilities.md). `Inertia::lazy()` and `LazyProp` were removed in 2.x; use `optional()`.
+
 ### Flash data
 
 Use `InertiaInterface::flash()` to put one-time data into Inertia v3's top-level `page.flash` field:
@@ -205,50 +92,42 @@ return $inertia
     ->render('Users/Index');
 ```
 
-`page.flash` is distinct from an ordinary `props.flash` value. Direct flash is available on the rendered response without any session integration. To carry pending flash across redirects, register an `InertiaFlashProviderInterface` implementation in the PSR-11 container. The core package deliberately provides no session implementation; without a provider it makes no session or storage calls, and a redirect with pending flash throws `MissingFlashProviderException` instead of silently discarding the data.
+`page.flash` is distinct from an ordinary `props.flash` value. Direct flash needs no session integration. To carry pending flash across redirects, register an `InertiaFlashProviderInterface` implementation in the container: the core package deliberately provides no session implementation, and a redirect with pending flash and no provider throws `MissingFlashProviderException` instead of silently discarding the data. Custom `InertiaInterface` implementations used together with a provider must also implement `InertiaFlashStateInterface`. See [the provider contract](docs/inertia-v3-migration.md#6-configure-flash-storage-when-you-need-redirect-flash).
 
-When a flash provider is registered, custom `InertiaInterface` implementations must also implement the public `InertiaFlashStateInterface`. The middleware uses that extension contract to connect the lazy provider lifecycle; unsupported custom implementations fail fast when the middleware creates the request's Inertia service. See [the migration guide](docs/inertia-v3-migration.md#6-configure-flash-storage-when-you-need-redirect-flash) for the provider contract.
+### Asset versioning
 
-For asset-version checks, bind an application-specific implementation of `InertiaVersionProviderInterface`. The provider is the only source of the page version: the middleware calls it before the downstream handler, validates the result, and passes it to `InertiaFactoryInterface::fromRequest($request, $version)` so the request-scoped Inertia service is created with the canonical version already applied. When the provider returns a version, a stale Inertia `GET` receives a `409` with `X-Inertia-Location` and `X-Inertia-Version` before the handler runs, without consuming application flash state.
+Bind an application-specific `InertiaVersionProviderInterface` to enable asset-version checks. It is the only source of the page version: the middleware calls it before the downstream handler and passes the validated result to `InertiaFactoryInterface::fromRequest($request, $version)`. A stale Inertia `GET` then receives a `409` with `X-Inertia-Location` and `X-Inertia-Version` before the handler runs, without consuming application flash state.
 
-The provider is optional only for applications that deliberately work without asset versioning: returning `null` (or not registering a provider) renders pages with `version: null` and disables mismatch checks entirely. Handlers can no longer set the version — `InertiaInterface::version()` was removed in 3.x; applications that previously set the version in a handler must move that logic into a version provider. Custom `InertiaFactoryInterface` implementations must accept the new `?string $version` parameter and apply it when creating the service.
+The provider is optional only for applications that deliberately work without asset versioning: without one (or when it returns `null`) pages render with `version: null` and mismatch checks are disabled. `InertiaInterface::version()` was removed in 3.x, and custom `InertiaFactoryInterface` implementations must accept the `?string $version` parameter. See [the migration guide](docs/inertia-v3-migration.md#5-move-asset-versioning-into-a-version-provider).
 
-See [the v3 capability matrix](docs/inertia-v3-capabilities.md) and [the migration guide](docs/inertia-v3-migration.md) for supported protocol features, exception-contract changes, and framework-neutral limitations.
+## Configuration
 
-`Inertia::lazy()` and `LazyProp` were removed in 2.x.
+The built-in factories resolve container services strictly through PSR-11. Register these services with values implementing their declared interfaces: `ResponseFactoryInterface`, `StreamFactoryInterface`, `RootViewProviderInterface`, `TemplateRendererInterface`, and `InertiaFactoryInterface`. `InertiaVersionProviderInterface` and `InertiaFlashProviderInterface` are optional.
 
+The `config` service is optional. When present, it must be an array; `inertia_psr15.root_view` is an optional non-empty string and defaults to `app.html.twig`:
 
-After successful configuration, the adapter can be used to render the front-end component instead of the HTML templates:
 ```php
-
-declare(strict_types=1);
-
-namespace App\Handler;
-
-use Sirix\InertiaPsr15\Middleware\InertiaMiddleware;
-use Sirix\InertiaPsr15\Service\InertiaInterface;
-use Mezzio\LaminasView\LaminasViewRenderer;
-use Mezzio\Plates\PlatesRenderer;
-use Psr\Http\Message\ResponseInterface;
-use Psr\Http\Message\ServerRequestInterface;
-use Psr\Http\Server\RequestHandlerInterface;
-
-class HomePageHandler implements RequestHandlerInterface
-{
-    public function handle(ServerRequestInterface $request): ResponseInterface
-    {
-        /** @var InertiaInterface $inertia */
-        $inertia = $request->getAttribute(InertiaMiddleware::INERTIA_ATTRIBUTE);
-        return $inertia->render('Home', [
-            'greeting' => 'Hello Inertia PSR-15'
-        ]);
-    }
-}
-
+return [
+    'inertia_psr15' => [
+        'root_view' => 'inertia/app.html.twig',
+    ],
+];
 ```
 
-# Copyright
-Original author: Mohammed Cherif BOUCHELAGHEM (2021)
-Fork maintainer: Sirix (2025)
+Missing services, wrong service types, and invalid configuration fail with an exception that identifies the factory and required value.
 
-License: BSD-3-Clause (see LICENSE)
+## Exceptions
+
+Package boundary exceptions implement `Sirix\InertiaPsr15\Exception\InertiaExceptionInterface`; catch it to handle adapter failures as a group. Concrete exceptions keep the original throwable in `getPrevious()` where the package wraps a provider, prop resolver, renderer, serializer, or container failure. Non-rescued prop resolver failures are wrapped in `InertiaPropResolutionException` rather than rethrown unchanged.
+
+## Documentation
+
+- [Mezzio + Twig + Vite setup](docs/mezzio-twig-setup.md)
+- [Migrating to Inertia v3 / 3.x](docs/inertia-v3-migration.md)
+- [Inertia v3 capability matrix](docs/inertia-v3-capabilities.md)
+
+## Credits and license
+
+Originally created by Mohammed Cherif BOUCHELAGHEM ([cherifGsoul/inertia-psr15](https://github.com/cherifGsoul/inertia-psr15), 2021); maintained by Sirix since 2025.
+
+Licensed under BSD-3-Clause, see [LICENSE](LICENSE).

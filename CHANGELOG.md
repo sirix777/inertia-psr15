@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-11-21
+
+### Added
+- PHP 8.6 support.
+
+### Changed
+- Minimum supported PHP version is now 8.3 (dropped 8.2); supported versions are ~8.3 to ~8.6.
+- Raised the `sirix/container-resolver` requirement to `^1.1`, the first release supporting PHP 8.6.
+- Tooling: Rector and PHP-CS-Fixer now target PHP 8.3; typed class constants adopted in `Inertia`.
+- Dev dependency `mezzio/mezzio-template` now also accepts `^3.1`, the only line that installs on PHP 8.6.
+- Documentation: README rewritten and condensed; the Mezzio + Twig + Vite walkthrough moved to `docs/mezzio-twig-setup.md`, the fork notes section was removed.
+
 ## [3.0.0] - 2026-08-18
 
 ### Added

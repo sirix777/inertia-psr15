@@ -50,12 +50,12 @@ use function trim;
 
 class Inertia implements InertiaInterface, InertiaFlashStateInterface
 {
-    private const MAX_SAFE_PATH_LENGTH         = 255;
-    private const MAX_FLASH_KEY_LENGTH         = 8192;
-    private const MAX_REDIRECT_LOCATION_LENGTH = 8192;
+    private const int MAX_SAFE_PATH_LENGTH         = 255;
+    private const int MAX_FLASH_KEY_LENGTH         = 8192;
+    private const int MAX_REDIRECT_LOCATION_LENGTH = 8192;
 
     /** @var list<int> */
-    private const VALID_REDIRECT_STATUSES = [
+    private const array VALID_REDIRECT_STATUSES = [
         StatusCodeInterface::STATUS_MOVED_PERMANENTLY,
         StatusCodeInterface::STATUS_FOUND,
         StatusCodeInterface::STATUS_SEE_OTHER,
@@ -471,16 +471,16 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface
         }
 
         $isCachedOnce = function() use (&$once, $path, $state): bool {
-            return $once && ! $once->isFresh() && ! $state->explicitlyRequested($path) && $state->exceptOnce($once->key() ?? $path);
+            return $once instanceof OnceProp && ! $once->isFresh() && ! $state->explicitlyRequested($path) && $state->exceptOnce($once->key() ?? $path);
         };
         $shouldOmit = function() use ($isCachedOnce, &$always, &$optional, &$deferred, $state): bool {
             return $isCachedOnce()
-                || (! $always && ($optional || $deferred) && ! $state->explicitOnly && ! $state->isPartial);
+                || (! $always && ($optional || $deferred instanceof DeferredProp) && ! $state->explicitOnly && ! $state->isPartial);
         };
 
         if ($shouldOmit()) {
             $this->registerOnceMetadata($once, $path, $state);
-            if ($deferred && ! $isCachedOnce()) {
+            if ($deferred instanceof DeferredProp && ! $isCachedOnce()) {
                 $state->deferred[$deferred->group()][] = $path;
             }
             $this->registerMergeMetadata($path, $mergeOperations, $state);
@@ -501,7 +501,7 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface
                 $value = $value->value();
                 if ($shouldOmit()) {
                     $this->registerOnceMetadata($once, $path, $state);
-                    if ($deferred && ! $isCachedOnce()) {
+                    if ($deferred instanceof DeferredProp && ! $isCachedOnce()) {
                         $state->deferred[$deferred->group()][] = $path;
                     }
                     $this->registerMergeMetadata($path, $mergeOperations, $state);
@@ -515,7 +515,7 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface
                 $value = $this->resolveProps($value, $path, $state, $onlyPaths, $exceptPaths);
             }
 
-            if ($scroll) {
+            if ($scroll instanceof ScrollProp) {
                 $state->scroll[$path] = $scroll->metadata($value);
                 if ($state->isReset($path)) {
                     $state->scroll[$path]['reset'] = true;
@@ -528,7 +528,7 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface
                 ];
             }
         } catch (Throwable $exception) {
-            if ($deferred && $deferred->rescue()) {
+            if ($deferred instanceof DeferredProp && $deferred->rescue()) {
                 $state->rescued[] = $path;
                 $omit             = true;
 
@@ -683,7 +683,7 @@ class Inertia implements InertiaInterface, InertiaFlashStateInterface
 
     private function registerOnceMetadata(?OnceProp $once, string $path, PropResolutionState $state): void
     {
-        if ($once) {
+        if ($once instanceof OnceProp) {
             $state->once[$once->key() ?? $path] = [
                 'prop'      => $path,
                 'expiresAt' => $once->expiresAt(),

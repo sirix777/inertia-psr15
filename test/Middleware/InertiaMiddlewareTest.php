@@ -520,8 +520,8 @@ class InertiaMiddlewareTest extends TestCase
                 'Vary' => 'Accept, X-Inertia',
             ])] as $response) {
             $request = new ServerRequest();
-            $handler = new class($response) implements RequestHandlerInterface {
-                public function __construct(private readonly ResponseInterface $response) {}
+            $handler = new readonly class($response) implements RequestHandlerInterface {
+                public function __construct(private ResponseInterface $response) {}
 
                 public function handle(ServerRequestInterface $request): ResponseInterface
                 {
@@ -855,9 +855,9 @@ class InertiaMiddlewareTest extends TestCase
         });
         $recursiveFlash         = [];
         $recursiveFlash['self'] = &$recursiveFlash;
-        $handler                = new class($recursiveFlash) implements RequestHandlerInterface {
+        $handler                = new readonly class($recursiveFlash) implements RequestHandlerInterface {
             /** @param array<string, mixed> $flash */
-            public function __construct(private readonly array $flash) {}
+            public function __construct(private array $flash) {}
 
             public function handle(ServerRequestInterface $request): ResponseInterface
             {
@@ -906,16 +906,16 @@ class InertiaMiddlewareTest extends TestCase
             }
         });
         $failure = new RuntimeException('Flash serialization failure');
-        $flash   = new class($failure) implements JsonSerializable {
-            public function __construct(private readonly RuntimeException $failure) {}
+        $flash   = new readonly class($failure) implements JsonSerializable {
+            public function __construct(private RuntimeException $failure) {}
 
             public function jsonSerialize(): mixed
             {
                 throw $this->failure;
             }
         };
-        $handler = new class($flash) implements RequestHandlerInterface {
-            public function __construct(private readonly mixed $flash) {}
+        $handler = new readonly class($flash) implements RequestHandlerInterface {
+            public function __construct(private mixed $flash) {}
 
             public function handle(ServerRequestInterface $request): ResponseInterface
             {
@@ -1056,8 +1056,8 @@ class InertiaMiddlewareTest extends TestCase
                 'X-Inertia' => 'true',
             ]);
             $failure  = new RuntimeException('Provider failure');
-            $provider = new class($operation, $failure) implements InertiaFlashProviderInterface {
-                public function __construct(private readonly string $operation, private readonly Throwable $failure) {}
+            $provider = new readonly class($operation, $failure) implements InertiaFlashProviderInterface {
+                public function __construct(private string $operation, private Throwable $failure) {}
 
                 public function pull(ServerRequestInterface $request): array
                 {
@@ -1088,8 +1088,8 @@ class InertiaMiddlewareTest extends TestCase
                     return '<html></html>';
                 }
             });
-            $handler = new class($operation) implements RequestHandlerInterface {
-                public function __construct(private readonly string $operation) {}
+            $handler = new readonly class($operation) implements RequestHandlerInterface {
+                public function __construct(private string $operation) {}
 
                 public function handle(ServerRequestInterface $request): ResponseInterface
                 {

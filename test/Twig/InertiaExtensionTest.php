@@ -76,8 +76,8 @@ class InertiaExtensionTest extends TestCase
     public function testWrapsJsonSerializableFailuresWithTheExactThrowable(): void
     {
         foreach ([new RuntimeException('serialization failed'), new Error('serialization error')] as $original) {
-            $value = new class($original) implements JsonSerializable {
-                public function __construct(private readonly Throwable $exception) {}
+            $value = new readonly class($original) implements JsonSerializable {
+                public function __construct(private Throwable $exception) {}
 
                 public function jsonSerialize(): mixed
                 {

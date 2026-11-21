@@ -14,18 +14,18 @@
         }
     ],
     "require": {
-        "php": "~8.2.0 || ~8.3.0 || ~8.4.0 || ~8.5.0",
+        "php": "~8.3.0 || ~8.4.0 || ~8.5.0 || ~8.6.0",
         "fig/http-message-util": "^1.1",
         "psr/container": "^1.0 || ^2.0",
         "psr/http-factory": "^1.1",
         "psr/http-server-middleware": "^1.0",
-        "sirix/container-resolver": "^1.0"
+        "sirix/container-resolver": "^1.1"
     },
     "require-dev": {
         "bamarni/composer-bin-plugin": "^1.8",
         "laminas/laminas-diactoros": "^3.6.0",
         "localheinz/diff": "^1.0",
-        "mezzio/mezzio-template": "^2.11",
+        "mezzio/mezzio-template": "^2.11 || ^3.1",
         "phpunit/phpunit": "^10.5 || ^11.5",
         "twig/twig": "^3.21"
     },
