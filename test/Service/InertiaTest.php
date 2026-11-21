@@ -22,20 +22,20 @@ class InertiaTest extends TestCase
      */
     public function testRenderReturnPsr7ResponseWithJsonWhenInertiaHeaderIsPresent(): void
     {
-        $request = $this->createMock(ServerRequestInterface::class);
+        $request = $this->createStub(ServerRequestInterface::class);
         $request->method('hasHeader')->willReturnMap([
             ['X-Inertia', true],
             ['X-Inertia-Partial-Data', false],
         ]);
-        $uri = $this->createMock(UriInterface::class);
+        $uri = $this->createStub(UriInterface::class);
         $uri->method('__toString')->willReturn('/');
         $request->method('getUri')->willReturn($uri);
 
         $response        = $this->createMock(ResponseInterface::class);
-        $responseFactory = $this->createMock(ResponseFactoryInterface::class);
+        $responseFactory = $this->createStub(ResponseFactoryInterface::class);
         $responseFactory->method('createResponse')->willReturn($response);
 
-        $stream        = $this->createMock(StreamInterface::class);
+        $stream        = $this->createStub(StreamInterface::class);
         $streamFactory = $this->createMock(StreamFactoryInterface::class);
 
         $expectedJson    = '{"component":"component","props":{"errors":{}},"url":"\/","version":null}';
@@ -52,7 +52,7 @@ class InertiaTest extends TestCase
             ->willReturn($stream)
         ;
 
-        $rootViewProvider = $this->createMock(RootViewProviderInterface::class);
+        $rootViewProvider = $this->createStub(RootViewProviderInterface::class);
 
         $response
             ->expects($this->once())
@@ -86,20 +86,20 @@ class InertiaTest extends TestCase
      */
     public function testRenderReturnPsr7ResponseWithHtmlWhenInertiaHeaderIsNotPresent(): void
     {
-        $request = $this->createMock(ServerRequestInterface::class);
+        $request = $this->createStub(ServerRequestInterface::class);
         $request->method('hasHeader')->willReturnMap([
             ['X-Inertia', false],
             ['X-Inertia-Partial-Data', false],
         ]);
-        $uri = $this->createMock(UriInterface::class);
+        $uri = $this->createStub(UriInterface::class);
         $uri->method('__toString')->willReturn('/');
         $request->method('getUri')->willReturn($uri);
 
         $response        = $this->createMock(ResponseInterface::class);
-        $responseFactory = $this->createMock(ResponseFactoryInterface::class);
+        $responseFactory = $this->createStub(ResponseFactoryInterface::class);
         $responseFactory->method('createResponse')->willReturn($response);
 
-        $stream        = $this->createMock(StreamInterface::class);
+        $stream        = $this->createStub(StreamInterface::class);
         $streamFactory = $this->createMock(StreamFactoryInterface::class);
 
         $expectedHtml    = '<html>ok</html>';
@@ -116,7 +116,7 @@ class InertiaTest extends TestCase
             ->willReturn($stream)
         ;
 
-        $rootViewProvider = $this->createMock(RootViewProviderInterface::class);
+        $rootViewProvider = $this->createStub(RootViewProviderInterface::class);
         $rootViewProvider->method('__invoke')->willReturn($expectedHtml);
 
         $response
@@ -151,7 +151,7 @@ class InertiaTest extends TestCase
      */
     public function testRenderReturnPartialDataWhenHeaderContainsPartialData(): void
     {
-        $request = $this->createMock(ServerRequestInterface::class);
+        $request = $this->createStub(ServerRequestInterface::class);
         $request->method('hasHeader')->willReturnMap([
             ['X-Inertia', true],
             ['X-Inertia-Partial-Data', true],
@@ -164,23 +164,23 @@ class InertiaTest extends TestCase
         $json         = '{"component":"component","props":{"errors":{},"key2":"value2"},"url":"\/","version":null}';
         $jsonResponse = null;
 
-        $uri = $this->createMock(UriInterface::class);
+        $uri = $this->createStub(UriInterface::class);
         $uri->method('__toString')->willReturn('callback()');
         $request->method('getUri')->willReturn($uri);
 
-        $response        = $this->createMock(ResponseInterface::class);
-        $responseFactory = $this->createMock(ResponseFactoryInterface::class);
+        $response        = $this->createStub(ResponseInterface::class);
+        $responseFactory = $this->createStub(ResponseFactoryInterface::class);
         $responseFactory->method('createResponse')->willReturn($response);
 
-        $stream        = $this->createMock(StreamInterface::class);
-        $streamFactory = $this->createMock(StreamFactoryInterface::class);
+        $stream        = $this->createStub(StreamInterface::class);
+        $streamFactory = $this->createStub(StreamFactoryInterface::class);
         $streamFactory->method('createStream')->willReturnCallback(function(string $data) use (&$jsonResponse, $stream) {
             $jsonResponse = $data;
 
             return $stream;
         });
 
-        $rootViewProvider = $this->createMock(RootViewProviderInterface::class);
+        $rootViewProvider = $this->createStub(RootViewProviderInterface::class);
 
         $response->method('withBody')->willReturn($response);
         $response->method('withHeader')->willReturn($response);
@@ -209,7 +209,7 @@ class InertiaTest extends TestCase
      */
     public function testRenderUsesTheRequestUrl(): void
     {
-        $request = $this->createMock(ServerRequestInterface::class);
+        $request = $this->createStub(ServerRequestInterface::class);
         $request->method('hasHeader')->willReturnMap([
             ['X-Inertia', true],
             ['X-Inertia-Partial-Data', false],
@@ -218,23 +218,23 @@ class InertiaTest extends TestCase
         $validJson    = '{"component":"component","props":{"errors":{},"key1":"value1","key2":"value2"},"url":"\/test\/url","version":null}';
         $jsonResponse = null;
 
-        $uri = $this->createMock(UriInterface::class);
+        $uri = $this->createStub(UriInterface::class);
         $uri->method('getPath')->willReturn('/test/url');
         $request->method('getUri')->willReturn($uri);
 
-        $response        = $this->createMock(ResponseInterface::class);
-        $responseFactory = $this->createMock(ResponseFactoryInterface::class);
+        $response        = $this->createStub(ResponseInterface::class);
+        $responseFactory = $this->createStub(ResponseFactoryInterface::class);
         $responseFactory->method('createResponse')->willReturn($response);
 
-        $stream        = $this->createMock(StreamInterface::class);
-        $streamFactory = $this->createMock(StreamFactoryInterface::class);
+        $stream        = $this->createStub(StreamInterface::class);
+        $streamFactory = $this->createStub(StreamFactoryInterface::class);
         $streamFactory->method('createStream')->willReturnCallback(function(string $data) use (&$jsonResponse, $stream) {
             $jsonResponse = $data;
 
             return $stream;
         });
 
-        $rootViewProvider = $this->createMock(RootViewProviderInterface::class);
+        $rootViewProvider = $this->createStub(RootViewProviderInterface::class);
 
         $response->method('withBody')->willReturn($response);
         $response->method('withHeader')->willReturn($response);
@@ -261,7 +261,7 @@ class InertiaTest extends TestCase
      */
     public function testRenderReturnResponseWithoutOptionalProps(): void
     {
-        $request = $this->createMock(ServerRequestInterface::class);
+        $request = $this->createStub(ServerRequestInterface::class);
         $request->method('hasHeader')->willReturnMap([
             ['X-Inertia', true],
             ['X-Inertia-Partial-Data', false],
@@ -270,23 +270,23 @@ class InertiaTest extends TestCase
         $validJson    = '{"component":"component","props":{"errors":{},"key2":"value2","auth":{"user":"Jane"}},"url":"\/","version":null}';
         $jsonResponse = null;
 
-        $uri = $this->createMock(UriInterface::class);
+        $uri = $this->createStub(UriInterface::class);
         $uri->method('__toString')->willReturn('callback()');
         $request->method('getUri')->willReturn($uri);
 
-        $response        = $this->createMock(ResponseInterface::class);
-        $responseFactory = $this->createMock(ResponseFactoryInterface::class);
+        $response        = $this->createStub(ResponseInterface::class);
+        $responseFactory = $this->createStub(ResponseFactoryInterface::class);
         $responseFactory->method('createResponse')->willReturn($response);
 
-        $stream        = $this->createMock(StreamInterface::class);
-        $streamFactory = $this->createMock(StreamFactoryInterface::class);
+        $stream        = $this->createStub(StreamInterface::class);
+        $streamFactory = $this->createStub(StreamFactoryInterface::class);
         $streamFactory->method('createStream')->willReturnCallback(function(string $data) use (&$jsonResponse, $stream) {
             $jsonResponse = $data;
 
             return $stream;
         });
 
-        $rootViewProvider = $this->createMock(RootViewProviderInterface::class);
+        $rootViewProvider = $this->createStub(RootViewProviderInterface::class);
 
         $response->method('withBody')->willReturn($response);
         $response->method('withHeader')->willReturn($response);
@@ -320,7 +320,7 @@ class InertiaTest extends TestCase
      */
     public function testRenderReturnResponseWithRequestedOptionalProps(): void
     {
-        $request = $this->createMock(ServerRequestInterface::class);
+        $request = $this->createStub(ServerRequestInterface::class);
         $request->method('hasHeader')->willReturnMap([
             ['X-Inertia', true],
             ['X-Inertia-Partial-Data', true],
@@ -334,23 +334,23 @@ class InertiaTest extends TestCase
         $validJson    = '{"component":"component","props":{"errors":{},"key1":"value1"},"url":"\/","version":null}';
         $jsonResponse = null;
 
-        $uri = $this->createMock(UriInterface::class);
+        $uri = $this->createStub(UriInterface::class);
         $uri->method('__toString')->willReturn('callback()');
         $request->method('getUri')->willReturn($uri);
 
-        $response        = $this->createMock(ResponseInterface::class);
-        $responseFactory = $this->createMock(ResponseFactoryInterface::class);
+        $response        = $this->createStub(ResponseInterface::class);
+        $responseFactory = $this->createStub(ResponseFactoryInterface::class);
         $responseFactory->method('createResponse')->willReturn($response);
 
-        $stream        = $this->createMock(StreamInterface::class);
-        $streamFactory = $this->createMock(StreamFactoryInterface::class);
+        $stream        = $this->createStub(StreamInterface::class);
+        $streamFactory = $this->createStub(StreamFactoryInterface::class);
         $streamFactory->method('createStream')->willReturnCallback(function(string $data) use (&$jsonResponse, $stream) {
             $jsonResponse = $data;
 
             return $stream;
         });
 
-        $rootViewProvider = $this->createMock(RootViewProviderInterface::class);
+        $rootViewProvider = $this->createStub(RootViewProviderInterface::class);
 
         $response->method('withBody')->willReturn($response);
         $response->method('withHeader')->willReturn($response);
@@ -380,7 +380,7 @@ class InertiaTest extends TestCase
      */
     public function testRenderReturnsRequestedNestedPartialProps(): void
     {
-        $request = $this->createMock(ServerRequestInterface::class);
+        $request = $this->createStub(ServerRequestInterface::class);
         $request->method('hasHeader')->willReturnMap([
             ['X-Inertia', true],
             ['X-Inertia-Partial-Data', true],
@@ -390,22 +390,22 @@ class InertiaTest extends TestCase
             ['X-Inertia-Partial-Component', 'component'],
             ['X-Inertia-Partial-Data', 'auth.notifications'],
         ]);
-        $uri = $this->createMock(UriInterface::class);
+        $uri = $this->createStub(UriInterface::class);
         $uri->method('__toString')->willReturn('callback()');
         $request->method('getUri')->willReturn($uri);
 
-        $response        = $this->createMock(ResponseInterface::class);
-        $responseFactory = $this->createMock(ResponseFactoryInterface::class);
+        $response        = $this->createStub(ResponseInterface::class);
+        $responseFactory = $this->createStub(ResponseFactoryInterface::class);
         $responseFactory->method('createResponse')->willReturn($response);
-        $stream        = $this->createMock(StreamInterface::class);
-        $streamFactory = $this->createMock(StreamFactoryInterface::class);
+        $stream        = $this->createStub(StreamInterface::class);
+        $streamFactory = $this->createStub(StreamFactoryInterface::class);
         $jsonResponse  = null;
         $streamFactory->method('createStream')->willReturnCallback(function(string $data) use (&$jsonResponse, $stream) {
             $jsonResponse = $data;
 
             return $stream;
         });
-        $rootViewProvider = $this->createMock(RootViewProviderInterface::class);
+        $rootViewProvider = $this->createStub(RootViewProviderInterface::class);
         $response->method('withBody')->willReturn($response);
         $response->method('withHeader')->willReturn($response);
 
@@ -431,7 +431,7 @@ class InertiaTest extends TestCase
      */
     public function testPartialOnlyThenExceptExcludesPathsPresentInBothHeaders(): void
     {
-        $request = $this->createMock(ServerRequestInterface::class);
+        $request = $this->createStub(ServerRequestInterface::class);
         $request->method('hasHeader')->willReturnMap([
             ['X-Inertia', true],
             ['X-Inertia-Partial-Data', true],
@@ -442,22 +442,22 @@ class InertiaTest extends TestCase
             ['X-Inertia-Partial-Data', 'auth.notifications'],
             ['X-Inertia-Partial-Except', 'auth.notifications'],
         ]);
-        $uri = $this->createMock(UriInterface::class);
+        $uri = $this->createStub(UriInterface::class);
         $uri->method('__toString')->willReturn('callback()');
         $request->method('getUri')->willReturn($uri);
 
-        $response        = $this->createMock(ResponseInterface::class);
-        $responseFactory = $this->createMock(ResponseFactoryInterface::class);
+        $response        = $this->createStub(ResponseInterface::class);
+        $responseFactory = $this->createStub(ResponseFactoryInterface::class);
         $responseFactory->method('createResponse')->willReturn($response);
-        $stream        = $this->createMock(StreamInterface::class);
-        $streamFactory = $this->createMock(StreamFactoryInterface::class);
+        $stream        = $this->createStub(StreamInterface::class);
+        $streamFactory = $this->createStub(StreamFactoryInterface::class);
         $jsonResponse  = null;
         $streamFactory->method('createStream')->willReturnCallback(function(string $data) use (&$jsonResponse, $stream) {
             $jsonResponse = $data;
 
             return $stream;
         });
-        $rootViewProvider = $this->createMock(RootViewProviderInterface::class);
+        $rootViewProvider = $this->createStub(RootViewProviderInterface::class);
         $response->method('withBody')->willReturn($response);
         $response->method('withHeader')->willReturn($response);
 
@@ -563,22 +563,22 @@ class InertiaTest extends TestCase
 
     public function testLocationReturnResponseWithLocationAsStringWithNotExistingInertiaHeader(): void
     {
-        $request      = $this->createMock(ServerRequestInterface::class);
+        $request      = $this->createStub(ServerRequestInterface::class);
         $htmlResponse = null;
 
         $request->method('hasHeader')->willReturnMap([
             ['X-Inertia', false],
         ]);
 
-        $response        = $this->createMock(ResponseInterface::class);
-        $responseFactory = $this->createMock(ResponseFactoryInterface::class);
+        $response        = $this->createStub(ResponseInterface::class);
+        $responseFactory = $this->createStub(ResponseFactoryInterface::class);
         $responseFactory->method('createResponse')->willReturn($response);
 
-        $stream        = $this->createMock(StreamInterface::class);
-        $streamFactory = $this->createMock(StreamFactoryInterface::class);
+        $stream        = $this->createStub(StreamInterface::class);
+        $streamFactory = $this->createStub(StreamFactoryInterface::class);
         $streamFactory->method('createStream')->willReturnCallback(fn (string $data) => $stream);
 
-        $rootViewProvider = $this->createMock(RootViewProviderInterface::class);
+        $rootViewProvider = $this->createStub(RootViewProviderInterface::class);
 
         $response->method('withBody')->willReturn($response);
         $response->method('withHeader')->willReturn($response);
@@ -599,21 +599,21 @@ class InertiaTest extends TestCase
 
     public function testLocationReturnResponseWithLocationAsStringWithExistingInertiaHeader(): void
     {
-        $request = $this->createMock(ServerRequestInterface::class);
+        $request = $this->createStub(ServerRequestInterface::class);
         $request->method('hasHeader')->willReturnMap([
             ['X-Inertia', true],
         ]);
         $htmlResponse = null;
 
-        $response        = $this->createMock(ResponseInterface::class);
-        $responseFactory = $this->createMock(ResponseFactoryInterface::class);
+        $response        = $this->createStub(ResponseInterface::class);
+        $responseFactory = $this->createStub(ResponseFactoryInterface::class);
         $responseFactory->method('createResponse')->willReturn($response);
 
-        $stream        = $this->createMock(StreamInterface::class);
-        $streamFactory = $this->createMock(StreamFactoryInterface::class);
+        $stream        = $this->createStub(StreamInterface::class);
+        $streamFactory = $this->createStub(StreamFactoryInterface::class);
         $streamFactory->method('createStream')->willReturnCallback(fn (string $data) => $stream);
 
-        $rootViewProvider = $this->createMock(RootViewProviderInterface::class);
+        $rootViewProvider = $this->createStub(RootViewProviderInterface::class);
 
         $response->method('withBody')->willReturn($response);
         $response->method('withHeader')->willReturn($response);
@@ -634,21 +634,21 @@ class InertiaTest extends TestCase
 
     public function testLocationReturnResponseWithLocationAsResponseInterfaceWithExistingInertiaHeader(): void
     {
-        $request = $this->createMock(ServerRequestInterface::class);
+        $request = $this->createStub(ServerRequestInterface::class);
         $request->method('hasHeader')->willReturnMap([
             ['X-Inertia', true],
         ]);
         $htmlResponse = null;
 
-        $response        = $this->createMock(ResponseInterface::class);
-        $responseFactory = $this->createMock(ResponseFactoryInterface::class);
+        $response        = $this->createStub(ResponseInterface::class);
+        $responseFactory = $this->createStub(ResponseFactoryInterface::class);
         $responseFactory->method('createResponse')->willReturn($response);
 
-        $stream        = $this->createMock(StreamInterface::class);
-        $streamFactory = $this->createMock(StreamFactoryInterface::class);
+        $stream        = $this->createStub(StreamInterface::class);
+        $streamFactory = $this->createStub(StreamFactoryInterface::class);
         $streamFactory->method('createStream')->willReturnCallback(fn (string $data) => $stream);
 
-        $rootViewProvider = $this->createMock(RootViewProviderInterface::class);
+        $rootViewProvider = $this->createStub(RootViewProviderInterface::class);
 
         $response->method('withBody')->willReturn($response);
         $response->method('withHeader')->willReturn($response);
@@ -682,7 +682,7 @@ class InertiaTest extends TestCase
      */
     private function renderPartialReload(string $only, array $props, ?string $except = null): string
     {
-        $request = $this->createMock(ServerRequestInterface::class);
+        $request = $this->createStub(ServerRequestInterface::class);
         $request->method('hasHeader')->willReturnMap([
             ['X-Inertia', true],
             ['X-Inertia-Partial-Data', true],
@@ -700,22 +700,22 @@ class InertiaTest extends TestCase
 
         $request->method('getHeaderLine')->willReturnMap($headerLines);
 
-        $uri = $this->createMock(UriInterface::class);
+        $uri = $this->createStub(UriInterface::class);
         $uri->method('__toString')->willReturn('callback()');
         $request->method('getUri')->willReturn($uri);
 
-        $response        = $this->createMock(ResponseInterface::class);
-        $responseFactory = $this->createMock(ResponseFactoryInterface::class);
+        $response        = $this->createStub(ResponseInterface::class);
+        $responseFactory = $this->createStub(ResponseFactoryInterface::class);
         $responseFactory->method('createResponse')->willReturn($response);
-        $stream        = $this->createMock(StreamInterface::class);
-        $streamFactory = $this->createMock(StreamFactoryInterface::class);
+        $stream        = $this->createStub(StreamInterface::class);
+        $streamFactory = $this->createStub(StreamFactoryInterface::class);
         $jsonResponse  = null;
         $streamFactory->method('createStream')->willReturnCallback(function(string $data) use (&$jsonResponse, $stream) {
             $jsonResponse = $data;
 
             return $stream;
         });
-        $rootViewProvider = $this->createMock(RootViewProviderInterface::class);
+        $rootViewProvider = $this->createStub(RootViewProviderInterface::class);
         $response->method('withBody')->willReturn($response);
         $response->method('withHeader')->willReturn($response);
 
