@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Raised the `sirix/container-resolver` requirement to `^1.1`, the first release supporting PHP 8.6.
 - Tooling: Rector and PHP-CS-Fixer now target PHP 8.3; typed class constants adopted in `Inertia`.
 - Dev dependency `mezzio/mezzio-template` now also accepts `^3.1`, the only line that installs on PHP 8.6.
+- Documentation: README rewritten and condensed; the Mezzio + Twig + Vite walkthrough moved to `docs/mezzio-twig-setup.md`, the fork notes section was removed.
 
 ## [3.0.0] - 2026-08-18
 
