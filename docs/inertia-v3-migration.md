@@ -22,7 +22,7 @@ Automatic framework session integration is intentionally outside this generic PS
 
 ## Requirements
 
-- PHP 8.2 or later.
+- PHP 8.3 or later.
 - An Inertia v3 client-side adapter:
 
   ```sh

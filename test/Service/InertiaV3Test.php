@@ -153,8 +153,8 @@ final class InertiaV3Test extends TestCase
     public function testScrollMetadataProviderFailuresUseThePropResolutionBoundary(): void
     {
         $original = new RuntimeException('pagination unavailable');
-        $metadata = new class($original) implements ProvidesScrollMetadata {
-            public function __construct(private readonly RuntimeException $exception) {}
+        $metadata = new readonly class($original) implements ProvidesScrollMetadata {
+            public function __construct(private RuntimeException $exception) {}
 
             public function getPageName(): string
             {
@@ -687,8 +687,8 @@ final class InertiaV3Test extends TestCase
     public function testJsonSerializableFailuresAreWrappedWithTheirExactCause(): void
     {
         foreach ([new RuntimeException('serialization failed'), new Error('serialization error')] as $original) {
-            $value = new class($original) implements JsonSerializable {
-                public function __construct(private readonly Throwable $exception) {}
+            $value = new readonly class($original) implements JsonSerializable {
+                public function __construct(private Throwable $exception) {}
 
                 public function jsonSerialize(): mixed
                 {
@@ -738,8 +738,8 @@ final class InertiaV3Test extends TestCase
     public function testRootViewPreservesSerializationExceptions(): void
     {
         $original = new InertiaSerializationException('Unable to serialize the Inertia page.');
-        $root     = new class($original) implements RootViewProviderInterface {
-            public function __construct(private readonly InertiaSerializationException $exception) {}
+        $root     = new readonly class($original) implements RootViewProviderInterface {
+            public function __construct(private InertiaSerializationException $exception) {}
 
             public function __invoke(Page $page): string
             {

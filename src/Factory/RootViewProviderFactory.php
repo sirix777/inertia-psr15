@@ -28,7 +28,10 @@ class RootViewProviderFactory
             $templateRenderer = $resolver->get(TemplateRendererInterface::class);
             $rootView         = ConfigReader::fromContainer($resolver)->nonEmptyString('inertia_psr15.root_view', RootViewProviderDecorator::DEFAULT_ROOT_VIEW);
 
-            $callback = (static fn (string $template, array $params): string => $templateRenderer->render($template, $params));
+            $callback = static function(string $template, array $params) use ($templateRenderer): string {
+                /** @var non-empty-string $template */
+                return $templateRenderer->render($template, $params);
+            };
 
             return new RootViewProviderDecorator($callback, $rootView);
         } catch (ConfigReaderException $exception) {
